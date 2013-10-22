@@ -159,20 +159,19 @@ calcClebshGordan (j1, m1) (j2, m2) (j, m)
     j  <= abs (j1 + j2) &&
     j  >= abs m         &&
     j1 >= abs m1        &&
-    j2 >= abs m2        = delta * sqrt (p1 / p2) * sqrt p3 * suma
+    j2 >= abs m2        = delta * (exp (0.5 * (p1 + p3 - p2))) * suma
   | otherwise = 0
   where
-    mapfact = U.product . U.map fact
+    mapfact = U.sum . U.map logFact
     delta = if m == m1 + m2 then 1 else 0
-    p1 = fromIntegral $ (2 * j + 1) *
-         fact (j1 + j2 - j)  *
-         fact (j  + j1 - j2) *
-         fact (j  + j2 - j1)
-    p2 = fromIntegral $ fact (j1 + j2 + j + 1)
-    p3 = fromIntegral $
-         fact (j  - m ) * fact (j  + m ) *
-         fact (j1 - m1) * fact (j1 + m1) *
-         fact (j2 - m2) * fact (j2 + m2)
+    p1 = log (fromIntegral (2 * j + 1)) +
+         logFact (j1 + j2 - j)  +
+         logFact (j  + j1 - j2) +
+         logFact (j  + j2 - j1)
+    p2 = logFact (j1 + j2 + j + 1)
+    p3 = logFact (j  - m ) + logFact (j  + m ) +
+         logFact (j1 - m1) + logFact (j1 + m1) +
+         logFact (j2 - m2) + logFact (j2 + m2)
     fk1 k = U.fromList [ (j1 + j2 - j - k), (j1 - m1 - k), (j2 + m2 - k) ]
     fk2 k = U.fromList [ (j  - j2 + m1 + k) , (j  - j1 - m2 + k) ]
 
@@ -181,8 +180,8 @@ calcClebshGordan (j1, m1) (j2, m2) (j, m)
     ks   = U.enumFromN minK (maxK - minK + 1)
     func k = let
       s = if even k then 1 else -1
-      d = fact k * mapfact (fk1 k) * mapfact (fk2 k)
-      in s / (fromIntegral d)
+      d = logFact k + mapfact (fk1 k) + mapfact (fk2 k)
+      in s * (exp (-d))
     suma = U.sum $ U.map func ks
 
 -- ============================== Gegenbauer polynomials =================================
