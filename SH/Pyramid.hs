@@ -1,44 +1,142 @@
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances          #-}
 
 module Hammer.Texture.SH.Pyramid
        ( L (..)
        , M (..)
        , N (..)
-       , LMN
+       , LF (..)
+       , MF (..)
+       , NF (..)
+       , l2lf, m2mf, n2nf
+       , lf2l, mf2m, nf2n
+       , PyraKey (..)
        , Pyramid
          ( pyramid
-         , pyramidStruct
+         , maxStack
          )
-       , PyramidRange (..)
-       , PyramidStructure
-         ( lmax
-         , linSize
-         , mRange
-         , nRange
-         , mSize
-         , nSize
-         , layerLast
-         , layerSize
-         )
-       , mkPyramidStruct
-       , unsafeMkPyramid
+       , getLinSize
        , generatePyramid
-       , getPyramidLen
-       , getLayerSize
-       , getLMN
-       , getPos
-       , getMRange
-       , getNRange
-       , genPyStructLinSeq
+       , unsafeMkPyramid
        , zipPyramidWith
        , mapPyramid
-       , isSamePyramidStruct
        , (%!)
        ) where
 
+import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as U
+
+class PyraKey k where
+  isKeyInRange :: k -> Bool
+  getKeyPos    :: k -> Int
+  getMaxKey    :: Int -> k
+  genLinSeq    :: Int -> [k]
+
+instance PyraKey (L, M) where
+  {-# INLINE isKeyInRange #-}
+  {-# INLINE getKeyPos    #-}
+  {-# INLINE getMaxKey    #-}
+  {-# INLINE genLinSeq    #-}
+  isKeyInRange (L l, M m) = l >= 0 && m >= 0 && m <= l
+  getKeyPos    (L l, M m) = let
+    -- The stack size along L is given by (l+1)
+    -- find the cumulative size of until the previous stack
+    -- therefore it is sum (l)
+    in sumN l + m
+  getMaxKey l = (L l, M l)
+  genLinSeq l = [ (li, mi)
+                | li <- [L 0 .. L l]
+                , mi <- [M 0 .. M (unL li)]]
+
+instance PyraKey (L, MF) where
+  {-# INLINE isKeyInRange #-}
+  {-# INLINE getKeyPos    #-}
+  {-# INLINE getMaxKey    #-}
+  {-# INLINE genLinSeq    #-}
+  isKeyInRange (L l, MF m) = l >= 0 && abs m <= l
+  getKeyPos    (L l, MF m) = let
+    -- The stack size along L is given by (2l+1)^2
+    m' = l + m
+    -- find the cumulative size of until the previous stack
+    -- therefore it is sum (2(l-1)+1) = sum (2l-1)
+    -- that turns to be: 2*sumN l - sum1 l
+    mStack = (l+1) * (l-1) + 1
+    in mStack + m'
+  getMaxKey l = (L l, MF l)
+  genLinSeq l = [ (li, mi)
+                | li <- [L 0 .. L l]
+                , mi <- [MF (-(unL li)) .. MF (unL li)]]
+
+instance PyraKey (N, L) where
+  {-# INLINE isKeyInRange #-}
+  {-# INLINE getKeyPos    #-}
+  {-# INLINE getMaxKey    #-}
+  {-# INLINE genLinSeq    #-}
+  isKeyInRange (N n, L l) = n >= 0 && l >= 0 && l <= n
+  getKeyPos    (N n, L l) = sumN n + l
+  getMaxKey n = (N n, L n)
+  genLinSeq n = [ (ni, li)
+                | ni <- [N 0 .. N n]
+                , li <- [L 0 .. L (unN ni)]]
+
+instance PyraKey (L, MF, NF) where
+  {-# INLINE isKeyInRange #-}
+  {-# INLINE getKeyPos    #-}
+  {-# INLINE getMaxKey    #-}
+  {-# INLINE genLinSeq    #-}
+  isKeyInRange (L l, MF m, NF n) = l >= 0 && abs m <= l && abs n <= l
+  getKeyPos    (L l, MF m, NF n) = let
+    -- The stack size along L is given by (2l+1)^2
+    maxLen = 2 * l + 1
+    l1 = l + 1
+    m' = l + m
+    n' = l + n
+    -- find the cumulative size of until the previous stack
+    -- therefore it is sum (2(l-1)+1)^2 = sum (2l-1)^2
+    -- that turns to be: 4*sumN2 l - 4*sumN l + sum1 l
+    mnStack = 4 * l * l1 * maxLen `quot` 6 - 2 * l * l1 + l
+    mStack  = m' * maxLen
+    in mnStack + mStack + n'
+  getMaxKey l = (L l, MF l, NF l)
+  genLinSeq l = [ (li, mi, ni)
+                | li <- [L 0 .. L l]
+                , mi <- [MF (-(unL li)) .. MF (unL li)]
+                , ni <- [NF (-(unL li)) .. NF (unL li)]]
+
+instance PyraKey (N, L, MF) where
+  {-# INLINE isKeyInRange #-}
+  {-# INLINE getKeyPos    #-}
+  {-# INLINE getMaxKey    #-}
+  {-# INLINE genLinSeq    #-}
+  isKeyInRange (N n, L l, MF m) = n >= 0 && l >= 0 && l <= n && abs m <= l
+  getKeyPos    (N n, L l, MF m) = let
+    -- The stack size along L is given by (n+1)²
+    m' = l + m
+    -- find the cumulative size of until the previous stack
+    -- for n>= 0 then nlStack = [1, 4, 9 ..] ((n+1)²)
+    -- for l>= 0 then lStack  = [1, 3, 5 ..] (2l+1)
+    nlStack = sumN2 n
+    lStack  = l * l
+    in nlStack + lStack + m'
+  getMaxKey n = (N n, L n, MF n)
+  genLinSeq n = [ (ni, li, mi)
+                | ni <- [0 .. N n]
+                , li <- [0 .. L (unN ni)]
+                , mi <- [MF (-(unL li)) .. MF (unL li)]]
+
+{-# INLINE sumN2 #-}
+sumN2 :: Int -> Int
+sumN2 m = m * (m+1) * (2*m+1) `quot` 6
+
+{-# INLINE sumN #-}
+sumN :: Int -> Int
+sumN m = m * (m+1) `quot` 2
+
+{-# INLINE sum1 #-}
+sum1 :: Int -> Int
+sum1 m = m + 1
 
 -- ================================= Pyramid =====================================
 
@@ -46,129 +144,69 @@ newtype L = L { unL :: Int } deriving (Show, Eq, Num, Enum, Ord)
 newtype M = M { unM :: Int } deriving (Show, Eq, Num, Enum, Ord)
 newtype N = N { unN :: Int } deriving (Show, Eq, Num, Enum, Ord)
 
-type LMN = (L, M, N)
+newtype LF = LF { unLF :: Int } deriving (Show, Eq, Num, Enum, Ord)
+newtype MF = MF { unMF :: Int } deriving (Show, Eq, Num, Enum, Ord)
+newtype NF = NF { unNF :: Int } deriving (Show, Eq, Num, Enum, Ord)
 
-data PyramidRange = FullRange
-                  | HalfRange
-                  | NoRange
-                    deriving (Show, Eq)
+lf2l :: LF -> L
+lf2l (LF l) = L $ abs l
 
-data (U.Unbox a)=> Pyramid a =
+l2lf :: L -> LF
+l2lf (L l) = LF l
+
+mf2m :: MF -> M
+mf2m (MF m) = M $ abs m
+
+m2mf :: M -> MF
+m2mf (M m) = MF m
+
+nf2n :: NF -> N
+nf2n (NF n) = N $ abs n
+
+n2nf :: N -> NF
+n2nf (N n) = NF n
+
+data (U.Unbox a, PyraKey k)=> Pyramid k a =
   Pyramid
-  { pyramidStruct :: PyramidStructure
-  , pyramid       :: U.Vector a
+  { maxStack :: Int
+  , pyramid  :: U.Vector a
   } deriving (Show)
 
-data PyramidStructure =
-  PyramidStructure
-  { lmax      :: L
-  , linSize   :: Int
-  , mRange    :: PyramidRange
-  , nRange    :: PyramidRange
-  , mSize     :: U.Vector Int
-  , nSize     :: U.Vector Int
-  , layerLast :: U.Vector Int
-  , layerSize :: U.Vector Int
-  } deriving (Show)
-
-mkPyramidStruct :: L -> PyramidRange -> PyramidRange -> PyramidStructure
-mkPyramidStruct l@(L lm) mr nr = let
-  lls = U.postscanl (+) 0 lss
-  lss = U.zipWith   (*) mss nss
-  mss = U.generate  (lm+1) (getPyramidLen mr . L)
-  nss = U.generate  (lm+1) (getPyramidLen nr . L)
-  in  PyramidStructure { lmax      = l
-                       , linSize   = if lm >= 0 then U.last lls else 0
-                       , mRange    = mr
-                       , nRange    = nr
-                       , mSize     = mss
-                       , nSize     = nss
-                       , layerLast = lls
-                       , layerSize = lss
-                       }
-
-unsafeMkPyramid :: (U.Unbox a)=> PyramidStructure -> U.Vector a -> Pyramid a
+unsafeMkPyramid :: (U.Unbox a, PyraKey k)=> Int -> U.Vector a -> Pyramid k a
 unsafeMkPyramid = Pyramid
 
-getPyramidLen :: PyramidRange -> (L -> Int)
-getPyramidLen pyrange = case pyrange of
-  FullRange -> (+1) . (* 2) . unL
-  HalfRange -> (+1) . unL
-  _         -> const 1
+getLinSize :: (PyraKey k)=> k -> Int
+getLinSize = (+1) . getKeyPos
 
-getLayerSize :: PyramidRange -> PyramidRange -> (L -> Int)
-getLayerSize m n = let
-  fm = getPyramidLen m
-  fn = getPyramidLen n
-  in \i -> fm i * fn i
+generatePyramid :: (U.Unbox a, PyraKey k)=> (k -> a) -> Int -> Pyramid k a
+generatePyramid func smax = let
+  ks  = V.fromList $ genLinSeq smax
+  vec = U.convert $ V.map func ks
+  in Pyramid smax vec
 
-getLMN :: PyramidStructure -> Int -> LMN
-getLMN PyramidStructure{..} i = let
-  offSet pr = case pr of
-    FullRange -> \x -> x-l
-    _         -> id
-  l  = maybe (unL lmax) id (U.findIndex (> i) layerLast)
-  ll = layerLast U.! l
-  ns = nSize     U.! l
-  ms = mSize     U.! l
-  t  = i - (ll - ms*ns)
-  (m,n) = t `quotRem` ns
-  m' = offSet mRange m
-  n' = offSet nRange n
-  in (L l, M m', N n')
-
-getPos :: PyramidStructure -> LMN -> Int
-getPos PyramidStructure{..} (L l, M m, N n) = let
-  offSet pr = case pr of
-    FullRange -> \x -> x+l
-    _         -> id
-  ns = nSize     U.! l
-  ll = layerLast U.! l
-  ls = layerSize U.! l
-  m' = offSet mRange m
-  n' = offSet nRange n
-  in (ll - ls) + m'*ns + n'
-
-getMRange :: PyramidStructure -> L -> (M, M)
-getMRange PyramidStructure{..} (L l) = let
-  ms = (mSize U.! l) - 1
-  in case mRange of
-    FullRange -> (M $ l-ms, M $ ms-l)
-    _         -> (M 0, M ms)
-
-getNRange :: PyramidStructure -> L -> (N, N)
-getNRange PyramidStructure{..} (L l) = let
-  ns = (nSize U.! l) - 1
-  in case nRange of
-    FullRange -> (N $ l-ns, N $ ns-l)
-    _         -> (N 0, N ns)
-
-genPyStructLinSeq :: PyramidStructure -> [LMN]
-genPyStructLinSeq s@PyramidStructure{..} = let
-  in [(li, mi, ni)
-     | li <- [0 .. lmax]
-     , mi <- let (mb, mu) = getMRange s li in [mb..mu]
-     , ni <- let (nb, nu) = getNRange s li in [nb..nu]]
-
-generatePyramid :: (U.Unbox a)=> (LMN -> a) -> PyramidStructure -> Pyramid a
-generatePyramid func p = let
-  vec = U.generate (linSize p) (func . getLMN p)
-  in Pyramid p vec
-
-zipPyramidWith :: (U.Unbox a, U.Unbox b, U.Unbox c)=> (a -> b -> c) -> Pyramid a -> Pyramid b -> Pyramid c
+zipPyramidWith :: (U.Unbox a, U.Unbox b, U.Unbox c, PyraKey k, Eq k)=>
+                  (a -> b -> c) -> Pyramid k a -> Pyramid k b -> Pyramid k c
 zipPyramidWith func pya pyb
-  | isSamePyramidStruct (pyramidStruct pya) (pyramidStruct pyb) = pya {pyramid = v}
+  | (maxStack pya) == (maxStack pyb) = pya {pyramid = v}
   | otherwise = error "Can't zip two Pyramids with different structures."
   where
     v = U.zipWith func (pyramid pya) (pyramid pyb)
 
-mapPyramid :: (U.Unbox a, U.Unbox b)=> (a -> b) -> Pyramid a -> Pyramid b
-mapPyramid func py = py { pyramid = U.map func (pyramid py)}
+mapPyramid :: (U.Unbox a, U.Unbox b, PyraKey k)=> (a -> b) -> Pyramid k a -> Pyramid k b
+mapPyramid func py = py { pyramid = U.map func (pyramid py) }
 
-isSamePyramidStruct :: PyramidStructure -> PyramidStructure -> Bool
-isSamePyramidStruct psa psb = lmax   psa == lmax   psb &&
-                              mRange psa == mRange psb &&
-                              nRange psa == nRange psb
+{-# INLINE (%!) #-}
+{-# SPECIALISE INLINE (%!) :: Pyramid (N, L, MF) Double -> (N, L, MF) -> Double #-}
+{-# SPECIALISE INLINE (%!) :: Pyramid (N, L) Double -> (N, L) -> Double #-}
+{-# SPECIALISE INLINE (%!) :: Pyramid (L, M) Double -> (L, M) -> Double #-}
+{-# SPECIALISE INLINE (%!) :: Pyramid (L, MF) Double -> (L, MF) -> Double #-}
+(%!) :: (U.Unbox a, PyraKey k)=> Pyramid k a -> k -> a
+Pyramid{..} %! key = pyramid U.! (getKeyPos key)
 
-(%!) :: (U.Unbox a)=> Pyramid a -> LMN -> a
-Pyramid{..} %! lmn = pyramid U.! (getPos pyramidStruct lmn)
+
+
+testIndexAccess :: Int -> Bool
+testIndexAccess n = let
+  ks = V.fromList $ genLinSeq n :: V.Vector (N, L, MF)
+  func i p = i == getKeyPos p
+  in V.and $ V.imap func ks

@@ -10,6 +10,14 @@ module Hammer.Texture.SphericalHarmonics
        , findRealSHCoef
        , findRealSHCoefWith
        , findRealSHCoefWeight
+         -- * test functions (TODO remove)
+       , testHSHSingle
+       , testHSH
+       , writeQuater
+       , calcZ
+       , calcHyperK
+       , genYPyramid
+       , genZPyramid
        ) where
 
 import qualified Data.List           as L
@@ -17,7 +25,6 @@ import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as U
 
 import           Data.Vector         (Vector)
-import           System.Random       (mkStdGen, randomRs)
 
 import           Hammer.Math.Algebra
 import           Hammer.Render.VTK.VTKRender
@@ -33,111 +40,192 @@ dbg s x = trace (s L.++ show x) x
 sqrt2 :: Double
 sqrt2 = sqrt 2
 
-calcK :: LMN -> Double
-calcK (L l, M m, _) = let
+{-# INLINE calcK #-}
+calcK :: (L, MF) -> Double
+calcK (L l, MF m) = let
   a = log $ fromIntegral $ 2 * l + 1
   b = logFact (l - abs m)
   c = logFact (l + abs m)
   in sqrt $ exp (a + b - log (4*pi) - c)
 
-calcY :: LMN -> Pyramid Double -> Pyramid Double -> (Double, Double) -> Double
-calcY lmn@(pl, pm, pn) pyK pyP (_, phi)
-  | pm > 0    = sqrt2 * (pyK %! lmn) * cos ( m * phi) * pyP %! lmn
-  | pm < 0    = sqrt2 * (pyK %! lmn) * sin (-m * phi) * pyP %! (pl, -pm, pn)
-  | otherwise = let l0n = (pl, 0, pn) in (pyK %! l0n) * (pyP %!l0n)
-  where m = fromIntegral (unM pm)
+{-# INLINE calcY #-}
+calcY :: (L, MF) -> Pyramid (L, MF) Double -> Pyramid (L, M) Double -> (Double, Double) -> Double
+calcY lmf@(l, mf) pyK pyP (_, phi)
+  | mf > 0    = sqrt2 * k * cos ( mi * phi)
+  | mf < 0    = sqrt2 * k * sin (-mi * phi)
+  | otherwise = k
+  where
+    k  = (pyK %! lmf) * pyP %! lm
+    lm = (l, mf2m mf)
+    mi = fromIntegral (unMF mf)
 
-evalRealSH :: Pyramid Double -> (Double, Double) -> Double
-evalRealSH pyC x@(theta, _) = let
-  psc = pyramidStruct pyC
-  l  = lmax psc
-  p  = genAssLegenPyramid l (cos theta)
-  k  = generatePyramid calcK psc
-  ps = genPyStructLinSeq psc
-  func acc lmn = acc + (pyC %! lmn) * (calcY lmn k p x)
-  in L.foldl' func 0 ps
+genYPyramid :: Int -> (Double, Double) -> Pyramid (L, MF) Double
+genYPyramid li = \r@(theta, _) -> let
+  k = generatePyramid calcK li
+  p = genAssLegenPyramid (L li) (cos theta)
+  in generatePyramid (\lmf -> calcY lmf k p r) li
 
-findRealSHCoef :: Int -> (Double, Double) -> Pyramid Double
+{-# INLINE evalRealSH #-}
+evalRealSH :: Pyramid (L, MF) Double -> (Double, Double) -> Double
+evalRealSH pyC = let
+  li = maxStack pyC
+  k  = generatePyramid calcK li
+  ps = genLinSeq li
+  in \x@(theta, _) -> let
+    p = genAssLegenPyramid (L li) (cos theta)
+    func acc lmf = acc + (pyC %! lmf) * (calcY lmf k p x)
+    in L.foldl' func 0 ps
+
+findRealSHCoef :: Int -> (Double, Double) -> Pyramid (L, MF) Double
 findRealSHCoef l x@(theta, _) = let
-  s = mkPyramidStruct (L l) FullRange NoRange
   p = genAssLegenPyramid (L l) (cos theta)
-  k = generatePyramid calcK s
-  func lmn = calcY lmn k p x
-  in generatePyramid func s
+  k = generatePyramid calcK l
+  func lmf = calcY lmf k p x
+  in generatePyramid func l
 
-findRealSHCoefWeight :: Int -> Vector (Double, (Double, Double)) -> Pyramid Double
+findRealSHCoefWeight :: Int -> Vector (Double, (Double, Double)) -> Pyramid (L, MF) Double
 findRealSHCoefWeight l xs = let
-  s = mkPyramidStruct (L l) FullRange NoRange
-  k = generatePyramid calcK s
+  k = generatePyramid calcK l
   n = fromIntegral $ V.length xs
   x0 = V.head xs
   xt = V.tail xs
   foo (w, x@(theta, _)) = let
     p = genAssLegenPyramid (L l) (cos theta)
-    in generatePyramid (\lmn -> w * calcY lmn k p x) s
+    in generatePyramid (\lmn -> w * calcY lmn k p x) l
   total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
   in mapPyramid (/n) total
 
-findRealSHCoefWith :: Int -> ((Double, Double) -> Double) -> Vector (Double, Double) -> Pyramid Double
+findRealSHCoefWith :: Int -> ((Double, Double) -> Double) ->
+                      Vector (Double, Double) -> Pyramid (L, MF) Double
 findRealSHCoefWith l func xs = let
-  s = mkPyramidStruct (L l) FullRange NoRange
-  k = generatePyramid calcK s
+  k = generatePyramid calcK l
   n = fromIntegral $ V.length xs
   x0 = V.head xs
   xt = V.tail xs
   foo x@(theta, _) = let
     p = genAssLegenPyramid (L l) (cos theta)
     f = func x
-    in generatePyramid (\lmn -> f * calcY lmn k p x) s
+    in generatePyramid (\lmf -> f * calcY lmf k p x) l
   total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
   in mapPyramid (/n) total
 
 -- =============================== HyperSpherical Harmonics ==============================
 
-calcHyperK :: LMN -> Double
-calcHyperK (L l, M m, N n) = let
+{-# INLINE calcHyperK #-}
+calcHyperK :: (N, L, MF) -> Double
+calcHyperK (N n, L l, MF m) = let
   a = log $ fromIntegral $ 2 * l + 1
   b = logFact (l - abs m)
   c = logFact (l + abs m)
   d = logFact (n - l)
   e = logFact (n + l + 1)
-  r = sqrt $ exp (a + b + log (fromIntegral $ n+1) + d - c - e)
-  in 2^l * (fromIntegral $ fact l) * r / pi
+  r = 0.5 * (a + b + log (fromIntegral $ n+1) + d - c - e)
+  in exp $ (fromIntegral l) * (log 2) + (logFact l) + r - (log pi)
 
-calcZ :: LMN -> Pyramid Double -> Pyramid Double ->
-         Pyramid Double -> (Double, Double, Double) -> Double
-calcZ lmn@(pl, pm, pn) pyK pyP pyC (omega, theta, phi)
-  | pm > 0    = sign * common * cos (m * phi)
-  | pm < 0    = sign * common * sin (m * phi)
+{-# INLINE calcZ #-}
+calcZ :: (N, L, MF) -> Pyramid (N, L, MF) Double -> Pyramid (L, M) Double ->
+         Pyramid (N, L) Double -> (Double, Double, Double) -> Double
+calcZ nlmf@(n, l, mf) pyK pyP pyC (omega, _ , phi)
+  | mf > 0    = sign * common * cos (mi * phi)
+  | mf < 0    = sign * common * sin (mi * phi)
   | otherwise = common
   where
-    sign   = if even (unM pm) then 1 else -1
-    common = (pyK %! lmn) * (sin (omega/2))^l * pyC %! (pl+1, 0, pn-(N l)) * pyP %! lmn
-    l0n    = (pl, 0, pn)
-    m      = fromIntegral (unM pm)
-    l      = fromIntegral (unL pl)
+    sign   = if even (unMF mf) then 1 else -1
+    common = let
+      z1 = testNan "z1" $ pyK %! nlmf
+      z2 = testNan "z2" $ (sin (omega/2))^li
+      z3 = testNan "z3" $ pyC %! (n, l)
+      z4 = testNan (show nlmf) $ pyP %! (l, mf2m mf)
+      in z1 * z2 * z3 * z4
+    mi     = fromIntegral (unMF mf)
+    li     = fromIntegral (unL l) ::  Int
+
+genZPyramid :: Int -> (Double, Double, Double) -> Pyramid (N, L, MF) Double
+genZPyramid ni = \r@(omega, theta, _) -> let
+  k  = generatePyramid calcHyperK ni
+  p  = genAssLegenPyramid   (L ni) (cos theta)
+  c  = genGegenbauerPyramid (N ni) (cos $ omega / 2)
+  in generatePyramid (\nlmf -> calcZ nlmf k p c r) ni
+
+testNan s x
+  | isNaN x   = error $ s ++ " - " ++ show x
+  | otherwise = x
+
+{-# INLINE evalRealHSH #-}
+evalRealHSH :: Pyramid (N, L, MF) Double -> (Double, Double, Double) -> Double
+evalRealHSH pyC  = let
+  ni = maxStack pyC
+  k  = generatePyramid calcHyperK ni
+  ps = genLinSeq ni
+  in \x@(omega, theta, _) -> let
+    {-# INLINE func #-}
+    func acc nlmf = acc + (pyC %! nlmf) * (calcZ nlmf k p c x)
+    p  = genAssLegenPyramid   (L ni) (cos theta)
+    c  = genGegenbauerPyramid (N ni) (cos $ omega / 2)
+    in L.foldl' func 0 ps
+
+findRealHSHCoef :: Int -> (Double, Double, Double) -> Pyramid (N, L, MF) Double
+findRealHSHCoef n x@(omega, theta, _) = let
+  p = genAssLegenPyramid (L n) (cos theta)
+  k = generatePyramid calcHyperK n
+  c = genGegenbauerPyramid (N n) (cos $ omega / 2)
+  func nlmf = calcZ nlmf k p c x
+  in generatePyramid func n
+
+findRealHSHCoefWeight :: Int -> Vector (Double, (Double, Double, Double)) ->
+                         Pyramid (N, L, MF) Double
+findRealHSHCoefWeight n xs = let
+  k  = generatePyramid calcHyperK n
+  np = fromIntegral $ V.length xs
+  x0 = V.head xs
+  xt = V.tail xs
+  foo (w, x@(omega, theta, _)) = let
+    p = genAssLegenPyramid   (L n) (cos theta)
+    c = genGegenbauerPyramid (N n) (cos $ omega / 2)
+    in generatePyramid (\nlmf -> w * calcZ nlmf k p c x) n
+  total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
+  in mapPyramid (/np) total
+
+findRealHSHCoefWith :: Int -> ((Double, Double, Double) -> Double) ->
+                       Vector (Double, Double, Double) -> Pyramid (N, L, MF) Double
+findRealHSHCoefWith n func xs = let
+  k  = generatePyramid calcHyperK n
+  np = fromIntegral $ V.length xs
+  x0 = V.head xs
+  xt = V.tail xs
+  foo x@(omega, theta, _) = let
+    p = genAssLegenPyramid   (L n) (cos theta)
+    c = genGegenbauerPyramid (N n) (cos $ omega / 2)
+    f = func x
+    in generatePyramid (\nlmf -> f * calcZ nlmf k p c x) n
+  total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
+  in mapPyramid (/np) total
 
 -- ================================= Test functions ======================================
 
-testPFunc :: LMN -> (Double, Double) -> Double
-testPFunc lmn@(l,_,_) x@(theta, _) = let
-  s = mkPyramidStruct l FullRange NoRange
-  k = generatePyramid calcK s
+testSHSingle :: (L, MF) -> VTK Vec3
+testSHSingle lmf = renderSphereVTK (evalSingleSH lmf)
+
+evalSingleSH :: (L, MF) -> (Double, Double) -> Double
+evalSingleSH  lmf@(l,_) x@(theta, _) = let
+  k = generatePyramid calcK (unL l)
   p = genAssLegenPyramid l (cos theta)
-  in calcY lmn k p x
+  in calcY lmf k p x
+
+testHSHSingle :: (N, L, MF) -> VTK Vec3
+testHSHSingle nlmf = renderHyperSphereVTK (evalSingleHSH nlmf)
+
+evalSingleHSH :: (N, L, MF) -> (Double, Double, Double) -> Double
+evalSingleHSH nlmf@(n, l,_) x@(omega, theta, _) = let
+  k = generatePyramid calcHyperK (unN n)
+  p = genAssLegenPyramid (L (unN n)) (cos theta)
+  c = genGegenbauerPyramid n (cos $ omega / 2)
+  in calcZ nlmf k p c x
 
 p70 (theta, phi) = (1/32) * sqrt (15/pi)    * (429 * (cos theta)^7 - 693 * (cos theta)^5 + 315 * (cos theta)^3 - 35 * cos theta)
 p40 (theta, phi) = (3/16) * sqrt (1/pi)     * (35 * (cos theta)^4 - 30 * (cos theta)^2 + 3)
 p30 (theta, phi) = (1/4)  * sqrt (7/pi)     * (5 * (cos theta)^3 - 3 * cos theta)
 p32 (theta, phi) = (1/4)  * sqrt (105/4*pi) * (cos theta * (sin theta)^2 * cos (2*phi))
-
-renderSpherePVTK :: LMN -> VTK Vec3
-renderSpherePVTK lmn = let
-  (polar, ps, quads) = sphere 30 30
-  func i _ = testPFunc lmn (polar V.!i)
-  vtk  = mkUGVTK "hypersphere" (V.convert ps) quads
-  attr = mkPointAttr ("Intensity") func
-  in addDataPoints vtk attr
 
 testPWithF21 :: Double -> Bool
 testPWithF21 x = let
@@ -148,32 +236,22 @@ testPWithF21 x = let
   t5 = (calcAssLegenSlow 3 (-3) x) - (-15*(1-x^2)**(3/2))/(-720)
   in and $ map ((< 10-8) . abs) [t1, t2, t3, t4, t5]
 
-testIndexAccess :: PyramidStructure -> Bool
-testIndexAccess s = let
-  size = linSize s
-  func i = i == getPos s (dbg ">>" $ getLMN s i)
-  t1 = and $ map func [0 .. size - 1]
-  t2 = and $ zipWith (\i x -> getLMN s i == x) [0 .. size - 1] (genPyStructLinSeq s)
-  in t1 && t2
-
-testN :: Int -> [(Double, Double)]
-testN n = let
-  g1 = mkStdGen 666
-  g2 = mkStdGen 667
-  theta = randomRs (0, pi) g1
-  phi   = randomRs (0, 2*pi) g2
-  in take n $ zip theta phi
-
 light :: (Double, Double) -> Double
 light (theta, phi) = max 0 ((5 * cos theta) - 4) +
                      max 0 (-4 * sin (theta-pi) * cos (phi-2.5)-3)
 
 testSH :: IO ()
 testSH = let
-  xs  = testN 10000
-  c   = findRealSHCoefWeight 10 (V.fromList [(10, (0, 0)), (30, (pi/2, 0)), (10, (0, pi/2))])
-  vtk = renderSphereVTK c
-  in writeQuater "ODF-test-0-0" vtk
+  c   = findRealSHCoefWeight 20 (V.fromList [(10, (0, 0)), (10, (pi/4, pi/4)), (10, (pi/2, pi/2))])
+  vtk = renderSphereVTK (evalRealSH c)
+  in writeQuater "ODF-test-0-1" vtk
+
+testHSH :: IO ()
+testHSH = let
+  c   = findRealHSHCoefWeight 20 (V.fromList [(10, (pi/2, pi/2, pi/3)), (10, (pi/4, pi/4, pi/3))])
+  --vtk = renderHyperSphereVTK (evalRealHSH c)
+  vtk = renderSolidSphereVTK (evalRealHSH c)
+  in writeUniVTKfile ("/home/edgar/Desktop/ODF-test.vtu") False vtk
 
 -- ====================================== Plot Space =====================================
 
@@ -218,13 +296,58 @@ instance RenderCell SphereCell where
   makeCell (SphereCell (a, b, c, d)) = U.fromList [a, b, c, d]
   getType _                          = VTK_QUAD
 
-renderSphereVTK :: Pyramid Double -> VTK Vec3
-renderSphereVTK cCoef = let
+solidSphere :: Int -> Int -> Int ->
+               (Vector (Double, Double, Double), Vector Vec3, Vector SolidSphereCell)
+solidSphere nPhi nTheta nOmega = let
+  step_omega = 2*pi/(fromIntegral nOmega)
+  ws = V.enumFromN step_omega nOmega
+  (polar, ps, cells) = sphere nPhi nTheta
+  findR = let k = (3/4)**(1/3) in \w -> k * (w - sin w)**(1/3)
+  newPS     = V.concatMap (\w -> V.map (findR w *&) ps) ws
+  spherical = V.concatMap (\w -> V.map (\(p,t) -> (w, p, t)) polar) ws
+  psSize = V.length ps
+  func i (SphereCell (a,b,c,d)) = let
+    k1 = psSize * i
+    k2 = psSize * (i + 1)
+    in SolidSphereCell (a+k1, b+k1, c+k1, d+k1, a+k2, b+k2, c+k2, d+k2)
+  newCells  = V.concatMap (\i -> V.map (func i) cells) $ V.enumFromN 0 (nOmega-1)
+  in (spherical, newPS, newCells)
+
+newtype SolidSphereCell = SolidSphereCell (Int, Int, Int, Int, Int, Int, Int, Int)
+
+instance RenderCell SolidSphereCell where
+  makeCell (SolidSphereCell (a, b, c, d, e, f, g, h)) =
+    U.fromList [a, b, c, d, e, f, g, h]
+  getType _ = VTK_HEXAHEDRON
+
+renderSphereVTK :: ((Double, Double) -> Double) -> VTK Vec3
+renderSphereVTK feval = let
   (polar, ps, quads) = sphere 30 30
-  func i _ = evalRealSH cCoef (polar V.!i)
+  func i _ = feval (polar V.!i)
   vtk  = mkUGVTK "hypersphere" (V.convert ps) quads
   attr = mkPointAttr ("Intensity") func
   in addDataPoints vtk attr
+
+renderSolidSphereVTK :: ((Double, Double, Double) -> Double) -> VTK Vec3
+renderSolidSphereVTK feval = let
+  (polar, ps, quads) = solidSphere 30 30 30
+  func i _ = feval (polar V.!i)
+  vtk  = mkUGVTK "hypersphere" (V.convert ps) quads
+  attr = mkPointAttr ("Intensity") func
+  in addDataPoints vtk attr
+
+renderHyperSphereVTK :: ((Double, Double, Double) -> Double) -> VTK Vec3
+renderHyperSphereVTK feval = let
+  (polar, ps, quads) = sphere 30 30
+  ws = [0, 2*pi/30 .. 2*pi]
+  func omega i _ = let
+    (theta, phi) = polar V.!i
+    in feval (omega, theta, phi)
+  foo acc w = let
+    attr = mkPointAttr ("Intensity - " ++ show w) (func w)
+    in addDataPoints acc attr
+  vtk = mkUGVTK "hypersphere" (V.convert ps) quads
+  in L.foldl' foo vtk ws
 
 renderPoints :: [Quaternion] -> VTK Vec3
 renderPoints lq = let

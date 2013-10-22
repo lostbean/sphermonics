@@ -6,6 +6,8 @@ module Hammer.Texture.SH.SupportFunctions
          -- * Associated Legendre polynomials (Hypergeometric function)
        , genAssLegenPyramidSlow
        , calcAssLegenSlow
+         -- * Gegenbauer coefficient
+       , genGegenbauerPyramid
          -- * Clebsh-Gordan coefficient
        , calcClebshGordan
          -- * Factorials
@@ -25,19 +27,17 @@ import Debug.Trace
 
 -- ===================== Associated Legendre Polynomials by 2F1 ========================== 
 
-genAssLegenPyramidSlow :: L -> Double -> Pyramid Double
-genAssLegenPyramidSlow lm x = let
-  struct = mkPyramidStruct lm HalfRange NoRange
-  in generatePyramid (\(l, m, _) -> calcAssLegenSlow l m x) struct
+genAssLegenPyramidSlow :: L -> Double -> Pyramid (L, MF) Double
+genAssLegenPyramidSlow (L li) x = generatePyramid (\(l, m) -> calcAssLegenSlow l m x) li
 
 -- | Works for L values up to 10.
-calcAssLegenSlow :: L -> M -> Double -> Double
-calcAssLegenSlow pl@(L l) pm@(M m) x
-  | m > 0     = k * calcPWithNegativeM pl (-pm) x * a / b
-  | otherwise = calcPWithNegativeM pl pm x
+calcAssLegenSlow :: L -> MF -> Double -> Double
+calcAssLegenSlow pl@(L l) pm@(MF m) x
+  | m > 0     = k * calcPWithNegativeM pl (M (-m)) x * exp (a - b)
+  | otherwise = calcPWithNegativeM pl (M m) x
   where
-    a = fromIntegral $ fact (l+m)
-    b = fromIntegral $ fact (l-m)
+    a = logFact (l+m)
+    b = logFact (l-m)
     k = if even m then 1 else -1
 
 calcPWithNegativeM :: L -> M -> Double -> Double
@@ -64,157 +64,163 @@ f21 a b c x = go 0 1
 
 -- ============================= Generate Associate Legendre =============================
 
-genAssLegenPyramid :: L -> Double -> Pyramid Double
+genAssLegenPyramid :: L -> Double -> Pyramid (L, M) Double
 genAssLegenPyramid l x = let
-  s  = mkPyramidStruct l HalfRange NoRange
+  kmax = getMaxKey (unL l) :: (L, M)
   -- reversed sequence l -> m (top -> bottom)
-  ps = [(li, mi, 0)
-       | li <- [0 .. lmax s]
-       , mi <- let (mb, mu) = getMRange s li in [mu, mu-1 .. mb]]
+  ps = [ (li, mi)
+       | li <- [0 .. l]
+       , mi <- let m = M (unL li) in [m, m-1 .. 0]]
   foo :: ST s (UM.MVector s Double)
   foo = do
-    v <- UM.new (linSize s)
-    mapM_ (fillP s v x) ps
+    v <- UM.new (getLinSize kmax)
+    mapM_ (fillP v x) ps
     return v
   vec = U.create foo
-  in unsafeMkPyramid s vec
+  in unsafeMkPyramid (unL l) vec
 
-fillP :: PyramidStructure -> UM.MVector s Double -> Double -> LMN -> ST s ()
-fillP s v x lmn@(pl, pm, pn)
+fillP :: UM.MVector s Double -> Double -> (L, M) -> ST s ()
+fillP v x lm@(pl, pm)
   | l == 0 && m == 0 = goP00
   | l == m           = goDiag
   | l == m+1         = goSubDiag
   | m == 0           = goCentralLine
-  | m >  0           = goFillLayer
-  | otherwise        = goInvert      -- m < 0
+  | otherwise        = goFillLayer   -- m > 0
   where
     l = unL pl
     m = unM pm
-    pos    = getPos s lmn
+    pos    = getKeyPos lm
     goP00  = UM.write v pos 1
     goDiag = UM.write v pos (pLL pl x)
     goSubDiag = do
       let prevl = pl - 1
-      pll <- UM.read v (getPos s (prevl, pm, pn))
+      pll <- UM.read v (getKeyPos (prevl, pm))
       UM.write v pos (pLLUp (prevl) x pll)
     goCentralLine =  do
-      pa <- UM.read v (getPos s (pl-1, pm, pn))
-      pb <- UM.read v (getPos s (pl-2, pm, pn))
-      UM.write v pos (pLUpM lmn x pa pb)
+      pa <- UM.read v (getKeyPos (pl-1, pm))
+      pb <- UM.read v (getKeyPos (pl-2, pm))
+      UM.write v pos (pLUpM lm x pa pb)
     goFillLayer = do
-      pa <- UM.read v (getPos s (pl-1, pm+1, pn))
-      pb <- UM.read v (getPos s (pl-1, pm-1, pn))
-      UM.write v pos (pML lmn x pa pb)
-    goInvert = do
-      let invLMN = (pl, -pm, pn)
-      p <- UM.read v (getPos s invLMN)
-      UM.write v pos (pMinvL invLMN p)
+      pa <- UM.read v (getKeyPos (pl-1, pm+1))
+      pb <- UM.read v (getKeyPos (pl-1, pm-1))
+      UM.write v pos (pML lm x pa pb)
 
+{--
+goInvert = do
+  let invLMN = (pl, -pm)
+  p <- UM.read v (getKeyPos invLMN)
+  UM.write v pos (pMinvL invLMN p)
+--}
+
+{-# INLINE pLL #-}
 pLL :: L -> Double -> Double
 pLL (L l) x = let
-  a = sqrt ((1-x*x)^l)
-  b = fromIntegral $ fact (2*l)
-  c = fromIntegral $ 2^l * fact l
+  a = 0.5 * (fromIntegral l) * log (1-x*x)
+  b = logFact (2*l)
+  c = (fromIntegral l) * (log 2) + logFact l
   foo = if even l then id else negate
-  in foo (a * b / c)
+  in foo $ exp (a + b - c)
 
+{-# INLINE pLLUp #-}
 pLLUp :: L -> Double -> Double -> Double
 pLLUp (L l) x pll = (fromIntegral $ 2*l+1) * x * pll
 
-pLUpM :: LMN -> Double -> Double -> Double -> Double
-pLUpM (L l0, M m, _) x pl1 pl2 = (vala - valb) / k
+{-# INLINE pLUpM #-}
+pLUpM :: (L, M) -> Double -> Double -> Double -> Double
+pLUpM (L l0, M m) x pl1 pl2 = (vala - valb) / k
   where
     l    = l0 - 1
     k    = fromIntegral $ l-m+1
-    vala = (fromIntegral $ 2*l + 1) * x * pl1
+    vala = (fromIntegral $ 2 * l + 1) * x * pl1
     valb = (fromIntegral $ l + m) * pl2
 
-pML :: LMN -> Double -> Double -> Double -> Double
-pML (L l, M m, _) x pbu pbl = let
+{-# INLINE pML #-}
+pML :: (L, M) -> Double -> Double -> Double -> Double
+pML (L l, M m) x pbu pbl = let
   a = -sqrt (1-x*x)
   b = (pbu + (fromIntegral $ (l+m-1) * (l+m)) * pbl)
   c = (fromIntegral $ 2*m)
   in a * b / c
 
-pMinvL :: LMN -> Double -> Double
-pMinvL (L l, M m, _) plm = let
+{-# INLINE pMinvL #-}
+pMinvL :: (L, M) -> Double -> Double
+pMinvL (L l, M m) plm = let
   k = exp (logFact (l - m) - logFact (l + m))
   in if even m then k * plm else -k * plm
 
 -- ========================= Clebsch–Gordan coefficients =================================
 
-calcClebshGordan :: Int -> Int -> Int -> Int -> Int -> Int -> Double
-calcClebshGordan j1 j2 m1 m2 j m
-  | m == m1 + m2       &&
-    abs (j1 - j2) <= j &&
-    j <= j1 + j2       = delta * sqrt (p1 / p2) * sqrt p3 * suma
+-- | Following the http://mathworld.wolfram.com/Clebsch-GordanCoefficient.html
+-- constraints.
+calcClebshGordan :: (Int, Int) -> (Int, Int) -> (Int, Int) -> Double
+calcClebshGordan (j1, m1) (j2, m2) (j, m)
+  | m  == m1 + m2       &&
+    j  >= abs (j1 - j2) &&
+    j  <= abs (j1 + j2) &&
+    j  >= abs m         &&
+    j1 >= abs m1        &&
+    j2 >= abs m2        = delta * sqrt (p1 / p2) * sqrt p3 * suma
   | otherwise = 0
   where
+    mapfact = U.product . U.map fact
     delta = if m == m1 + m2 then 1 else 0
     p1 = fromIntegral $ (2 * j + 1) *
-         fact (j1 + j2 - j) *
+         fact (j1 + j2 - j)  *
          fact (j  + j1 - j2) *
          fact (j  + j2 - j1)
-
     p2 = fromIntegral $ fact (j1 + j2 + j + 1)
-
     p3 = fromIntegral $
-         fact (j - m)   * fact (j + m) *
+         fact (j  - m ) * fact (j  + m ) *
          fact (j1 - m1) * fact (j1 + m1) *
          fact (j2 - m2) * fact (j2 + m2)
+    fk1 k = U.fromList [ (j1 + j2 - j - k), (j1 - m1 - k), (j2 + m2 - k) ]
+    fk2 k = U.fromList [ (j  - j2 + m1 + k) , (j  - j1 - m2 + k) ]
 
+    maxK = U.minimum $ fk1 0
+    minK = max 0 (negate $ U.minimum $ fk2 0)
+    ks   = U.enumFromN minK (maxK - minK + 1)
     func k = let
       s = if even k then 1 else -1
-      d = fact k *
-          fact (j1 + j2 - j - k) *
-          fact (j1 - m1 - k) *
-          fact (j2 + m2 - k) *
-          fact (j  - j2 + m1 + k) *
-          fact (j  - j1 - m2 + k)
+      d = fact k * mapfact (fk1 k) * mapfact (fk2 k)
       in s / (fromIntegral d)
-    minNonNeg = let
-      ma = max (j - j2 + m1) (j - j1 - m2)
-      in if ma > 0 then 0 else -ma
-    maxNonNeg = let
-      ma = min (j1 - m1) (j2 + m2)
-      in min ma (j1 + j2 - j)
-    nNonNeg = maxNonNeg - minNonNeg + 1
-    ks = U.enumFromN minNonNeg nNonNeg
     suma = U.sum $ U.map func ks
 
 -- ============================== Gegenbauer polynomials =================================
 
-genGegenbauerPyramid :: LMN -> Double -> Pyramid Double
-genGegenbauerPyramid (L l, M m, N n) x = let
-  s  = mkPyramidStruct l HalfRange NoRange
-  -- reversed sequence l -> m (top -> bottom)
-  ps = [(li, 0, ni)
-       | li <- [0 .. lmax s]
-       , ni <- let (nb, nu) = getNRange s li in [nu, nu-1 .. nb]]
+genGegenbauerPyramid :: N -> Double -> Pyramid (N, L) Double
+genGegenbauerPyramid n x = let
+  kmax = getMaxKey (unN n) :: (N, L)
+  ps = [(ni, li)
+       | ni <- [0 .. n]
+       , li <- let l = L (unN ni) in [l, l-1 .. 0]]
   foo :: ST s (UM.MVector s Double)
   foo = do
-    v <- UM.new (linSize s)
-    mapM_ (fillP s v x) ps
+    v <- UM.new (getLinSize kmax)
+    mapM_ (fillGG v x) ps
     return v
   vec = U.create foo
-  in unsafeMkPyramid s vec
+  in unsafeMkPyramid 0 vec
 
-fillP :: PyramidStructure -> UM.MVector s Double -> Double -> LMN -> ST s ()
-fillP s v x lmn@(pl, pm, pn)
-  | l == 0 && m == 0 = goP00
-  | otherwise        = goInvert      -- m < 0
+fillGG :: UM.MVector s Double -> Double -> (N, L) -> ST s ()
+fillGG v x nl@(n, l)
+  | i == 0    = goP0
+  | i == 1    = goP1
+  | otherwise = go
   where
-    l = unL pl
-    m = unM pm
-    a = pl + 1
-    x = unN pn - unL pl
-    pos    = getPos s lmn
-    goP00  = UM.write v pos 1
-    goDiag = UM.write v pos (pLL pl x)
-    goSubDiag = do
-      let prevl = pl - 1
-      pll <- UM.read v (getPos s (prevl, pm, pn))
-      UM.write v pos (pLLUp (prevl) x pll)
+    a   = fromIntegral $ unL l + 1
+    i   = unN n - unL l
+    pos = getKeyPos nl
+    func c1 c2 = let
+      g1 = 2 * x * (i' + a - 1) * c1
+      g2 = (i' + 2 * a - 2) * c2
+      i' = fromIntegral i
+      in (g1 - g2) / i'
+    goP0 = UM.write v pos 1
+    goP1 = UM.write v pos (2 * a * x)
+    go = do
+      c1 <- UM.read v (getKeyPos (n-1, l))
+      c2 <- UM.read v (getKeyPos (n-2, l))
+      UM.write v pos (func c1 c2)
 
 calcGegenbauer :: Int -> Double -> Double -> Double
 calcGegenbauer n0 a x = goG n0
@@ -227,7 +233,6 @@ calcGegenbauer n0 a x = goG n0
         g2  = (nd + 2 * a - 2) * goG (n - 2)
         nd = fromIntegral n
         in (g1 - g2) / nd
-
 
 -- ================================= Factorial tables ====================================
 
