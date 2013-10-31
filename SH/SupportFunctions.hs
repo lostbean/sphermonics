@@ -3,6 +3,7 @@
 module Hammer.Texture.SH.SupportFunctions
        ( -- * Associated Legendre polynomials (Recursion)
          genAssLegenPyramid
+       , genAssLegenFullPyramid
          -- * Associated Legendre polynomials (Hypergeometric function)
        , genAssLegenPyramidSlow
        , calcAssLegenSlow
@@ -116,13 +117,6 @@ fillP v x lm@(pl, pm)
       pb <- UM.read v (getKeyPos (pl-1, pm-1))
       UM.write v pos (pML lm x pa pb)
 
-{--
-goInvert = do
-  let invLMN = (pl, -pm)
-  p <- UM.read v (getKeyPos invLMN)
-  UM.write v pos (pMinvL invLMN p)
---}
-
 {-# INLINE pLL #-}
 pLL :: L -> Double -> Double
 pLL (L l) x = let
@@ -159,7 +153,7 @@ pMinvL (L l, M m) plm = let
   k = exp (logFact (l - m) - logFact (l + m))
   in if even m then k * plm else -k * plm
 
--- ========================= Clebsch???Gordan coefficients =================================
+-- ========================= Clebsch-Gordan coefficients =================================
 
 -- | Following the http://mathworld.wolfram.com/Clebsch-GordanCoefficient.html
 -- constraints.
