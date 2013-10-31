@@ -64,6 +64,17 @@ f21 a b c x = go 0 1
 
 -- ============================= Generate Associate Legendre =============================
 
+genAssLegenFullPyramid :: L -> Double -> Pyramid (L, MF) Double
+genAssLegenFullPyramid ll x = generatePyramid func (unL ll)
+  where
+    pyP = genAssLegenPyramid ll x
+    func (l, mf)
+      | mf >= 0   = p
+      | otherwise = pMinvL lm p
+      where
+        lm = (l, mf2m mf)
+        p  = pyP %! lm
+
 genAssLegenPyramid :: L -> Double -> Pyramid (L, M) Double
 genAssLegenPyramid l x = let
   kmax = getMaxKey (unL l) :: (L, M)
@@ -148,7 +159,7 @@ pMinvL (L l, M m) plm = let
   k = exp (logFact (l - m) - logFact (l + m))
   in if even m then k * plm else -k * plm
 
--- ========================= Clebsch–Gordan coefficients =================================
+-- ========================= Clebsch???Gordan coefficients =================================
 
 -- | Following the http://mathworld.wolfram.com/Clebsch-GordanCoefficient.html
 -- constraints.
