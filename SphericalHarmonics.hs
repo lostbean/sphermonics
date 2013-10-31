@@ -13,6 +13,7 @@ module Hammer.Texture.SphericalHarmonics
        , findSHCoef
        , findSHCoefWith
        , findSHCoefWeight
+       , powerComplex 
          -- * test functions (TODO remove)
        , testHSH
        , testHSH2
@@ -313,7 +314,12 @@ testHSH2 n xs = let
 printSH :: Pyramid (L, MF) (Double) -> IO ()
 printSH c = let
   vtk = renderSO2VTK (evalSH c)
-  in writeUniVTKfile ("/home/edgar/Desktop/ODF-test.vtu") False vtk
+  in writeUniVTKfile ("/home/edgar/Desktop/SH-test.vtu") False vtk
+
+printHSH :: Pyramid (N, L, MF) (Double) -> IO ()
+printHSH c = let
+  vtk = renderSO3SolidVTK (evalSH c)
+  in writeUniVTKfile ("/home/edgar/Desktop/HSH-test.vtu") False vtk
 
 writeQuater :: (RenderElemVTK a)=> String -> VTK a -> IO ()
 writeQuater name = writeUniVTKfile ("/home/edgar/Desktop/" ++ name ++ ".vtu") False
