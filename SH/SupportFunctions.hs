@@ -244,6 +244,12 @@ calcGegenbauer n0 a x = goG n0
         nd = fromIntegral n
         in (g1 - g2) / nd
 
+testGegen :: Int -> Double -> Pyramid (N, L) Double
+testGegen nmax x = let
+  pG = genGegenbauerPyramid (N nmax) x
+  func nl@(N n, L l) = pG %! nl - calcGegenbauer (n - l) (fromIntegral $ l + 1) x
+  in generatePyramid func nmax
+
 -- ================================= Factorial tables ====================================
 
 factTable :: U.Vector Int
