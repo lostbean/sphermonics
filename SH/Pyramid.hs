@@ -112,17 +112,22 @@ instance PyraKey (N, L, MF) where
   {-# INLINE genLinSeq    #-}
   isKeyInRange (N n, L l, MF m) = n >= 0 && l >= 0 && l <= n && abs m <= l
   getKeyPos    (N n, L l, MF m) = let
-    -- The stack size along L is given by (n+1)²
-    m' = l + m
     -- find the cumulative size of until the previous stack
-    -- for n>= 0 then nlStack = [1, 4, 9 ..] ((n+1)²)
-    -- for l>= 0 then lStack  = [1, 3, 5 ..] (2l+1)
-    nlStack = sumN2 n
+    -- for n>= 0 then nlStack = [1, 9, 25 ..] ((2i+1)²)
+    -- where i = n `quot` n
+    -- for l>= 0 then lStack  = [1, 3, 5, 7, 9 ..] (2l+1)
+    m' = l + m
+    -- (2(i-1) + 1)^2 == (2i - 1)^2
+    -- 4i^2 - 4i + 1
+    i = n `quot` 2
+    nlStack = 4 * sumN2 i - 4 * sumN i + sum1 i - 1
+    -- normal index n=0,1,2..
+    --nlStack = sumN2 n
     lStack  = l * l
     in nlStack + lStack + m'
   getMaxKey n = (N n, L n, MF n)
   genLinSeq n = [ (ni, li, mi)
-                | ni <- [0 .. N n]
+                | ni <- [0, 2 .. N n]
                 , li <- [0 .. L (unN ni)]
                 , mi <- [MF (-(unL li)) .. MF (unL li)]]
 
