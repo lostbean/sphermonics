@@ -13,7 +13,6 @@ module Hammer.Texture.SphericalHarmonics
        , findSHCoef
        , findSHCoefWith
        , findSHCoefWeight
-       , powerComplex 
          -- * test functions (TODO remove)
        , testHSH
        , testHSH2
@@ -48,13 +47,6 @@ dbg s x = trace (s L.++ show x) x
 
 sqrt2 :: Double
 sqrt2 = sqrt 2
-
-powerComplex :: (Num a)=> Int -> Complex a
-powerComplex x
-  | even x && even (x `quot` 2) =   1  :+   0
-  | even x                      = (-1) :+   0
-  | odd  x && even (x `quot` 2) =   0  :+   1
-  | otherwise                   =   0  :+ (-1)
 
 -- ================================= Spherical Harmonics =================================
 

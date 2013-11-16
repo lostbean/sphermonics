@@ -11,16 +11,20 @@ module Hammer.Texture.SH.SupportFunctions
        , genGegenbauerPyramid
          -- * Clebsh-Gordan coefficient
        , calcClebshGordan
+         -- * Power of Imaginary
+       , powerComplex
          -- * Factorials
        , fact
        , logFact
        ) where
 
-import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as UM
 
-import           Control.Monad.ST    (ST)
-import           Math.Gamma (gamma)
+import           Control.Monad.ST            (ST)
+import           Math.Gamma                  (gamma)
+
+import           Data.Complex                
 
 import           Hammer.Texture.SH.Pyramid
 
@@ -243,6 +247,15 @@ testGegen nmax x = let
   pG = genGegenbauerPyramid (N nmax) x
   func nl@(N n, L l) = pG %! nl - calcGegenbauer (n - l) (fromIntegral $ l + 1) x
   in generatePyramid func nmax
+
+-- =============================== power of imaginary (i^n)  ============================= 
+
+powerComplex :: (Num a)=> Int -> Complex a
+powerComplex x
+  | even x && even (x `quot` 2) =   1  :+   0
+  | even x                      = (-1) :+   0
+  | odd  x && even (x `quot` 2) =   0  :+   1
+  | otherwise                   =   0  :+ (-1)
 
 -- ================================= Factorial tables ====================================
 
