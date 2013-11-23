@@ -44,11 +44,12 @@ instance PyraKey (L, M) where
     -- The stack size along L is given by (l+1)
     -- find the cumulative size of until the previous stack
     -- therefore it is sum (l)
-    in sumN l + m
-  getMaxKey l = (L l, M l)
+    in (sumN l) + l - m
+  getMaxKey l = (L l, M 0)
   genLinSeq l = [ (li, mi)
-                | li <- [L 0 .. L l]
-                , mi <- [M 0 .. M (unL li)]]
+                | li <- [0 .. L l]
+                , mi <- let m = M (unL li) in [m, (m-1) .. 0]
+                ]
 
 instance PyraKey (L, MF) where
   {-# INLINE isKeyInRange #-}
@@ -58,16 +59,17 @@ instance PyraKey (L, MF) where
   isKeyInRange (L l, MF m) = l >= 0 && abs m <= l
   getKeyPos    (L l, MF m) = let
     -- The stack size along L is given by (2l+1)^2
-    m' = l + m
+    m' = l - m
     -- find the cumulative size of until the previous stack
     -- therefore it is sum (2(l-1)+1) = sum (2l-1)
     -- that turns to be: 2*sumN l - sum1 l
     mStack = (l+1) * (l-1) + 1
     in mStack + m'
-  getMaxKey l = (L l, MF l)
+  getMaxKey l = (L l, MF (-l))
   genLinSeq l = [ (li, mi)
                 | li <- [L 0 .. L l]
-                , mi <- [MF (-(unL li)) .. MF (unL li)]]
+                , mi <- let m = unL li in [MF m, MF (m-1) .. MF (-m)]
+                ]
 
 instance PyraKey (N, L) where
   {-# INLINE isKeyInRange #-}
@@ -79,8 +81,10 @@ instance PyraKey (N, L) where
   getMaxKey n = (N n, L n)
   genLinSeq n = [ (ni, li)
                 | ni <- [N 0 .. N n]
-                , li <- [L 0 .. L (unN ni)]]
+                , li <- let l = unN ni in [L 0 .. L l]
+                ]
 
+{--
 instance PyraKey (L, MF, NF) where
   {-# INLINE isKeyInRange #-}
   {-# INLINE getKeyPos    #-}
@@ -102,8 +106,10 @@ instance PyraKey (L, MF, NF) where
   getMaxKey l = (L l, MF l, NF l)
   genLinSeq l = [ (li, mi, ni)
                 | li <- [L 0 .. L l]
-                , mi <- [MF (-(unL li)) .. MF (unL li)]
-                , ni <- [NF (-(unL li)) .. NF (unL li)]]
+                , mi <- let m = unL li in [MF m, MF (m-1) .. MF m]
+                , ni <- let n = unL li in [NF n, NF (n-1) .. NF n]
+                ]
+--}
 
 instance PyraKey (N, L, MF) where
   {-# INLINE isKeyInRange #-}
@@ -116,7 +122,7 @@ instance PyraKey (N, L, MF) where
     -- for n>= 0 then nlStack = [1, 9, 25 ..] ((2i+1)²)
     -- where i = n `quot` n
     -- for l>= 0 then lStack  = [1, 3, 5, 7, 9 ..] (2l+1)
-    m' = l + m
+    m' = l - m
     -- (2(i-1) + 1)^2 == (2i - 1)^2
     -- 4i^2 - 4i + 1
     i = n `quot` 2
@@ -125,11 +131,12 @@ instance PyraKey (N, L, MF) where
     --nlStack = sumN2 n
     lStack  = l * l
     in nlStack + lStack + m'
-  getMaxKey n = (N n, L n, MF n)
+  getMaxKey n = (N n, L n, MF (-n))
   genLinSeq n = [ (ni, li, mi)
                 | ni <- [0, 2 .. N n]
-                , li <- [0 .. L (unN ni)]
-                , mi <- [MF (-(unL li)) .. MF (unL li)]]
+                , li <- let l = unN ni in [0 .. L l]
+                , mi <- let m = unL li in [MF m, MF (m-1) .. MF (-m)]
+                ]
 
 {-# INLINE sumN2 #-}
 sumN2 :: Int -> Int

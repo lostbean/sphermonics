@@ -24,13 +24,13 @@ import qualified Data.Vector.Unboxed.Mutable as UM
 import           Control.Monad.ST            (ST)
 import           Math.Gamma                  (gamma)
 
-import           Data.Complex                
+import           Data.Complex
 
 import           Hammer.Texture.SH.Pyramid
 
 import Debug.Trace
 
--- ===================== Associated Legendre Polynomials by 2F1 ========================== 
+-- ===================== Associated Legendre Polynomials by 2F1 ==========================
 
 genAssLegenPyramidSlow :: L -> Double -> Pyramid (L, MF) Double
 genAssLegenPyramidSlow (L li) x = generatePyramid (\(l, m) -> calcAssLegenSlow l m x) li
@@ -83,10 +83,7 @@ genAssLegenFullPyramid ll x = generatePyramid func (unL ll)
 genAssLegenPyramid :: L -> Double -> Pyramid (L, M) Double
 genAssLegenPyramid l x = let
   kmax = getMaxKey (unL l) :: (L, M)
-  -- reversed sequence l -> m (top -> bottom)
-  ps = [ (li, mi)
-       | li <- [0 .. l]
-       , mi <- let m = M (unL li) in [m, m-1 .. 0]]
+  ps   = genLinSeq (unL l)
   foo :: ST s (UM.MVector s Double)
   foo = do
     v <- UM.new (getLinSize kmax)
@@ -248,7 +245,7 @@ testGegen nmax x = let
   func nl@(N n, L l) = pG %! nl - calcGegenbauer (n - l) (fromIntegral $ l + 1) x
   in generatePyramid func nmax
 
--- =============================== power of imaginary (i^n)  ============================= 
+-- =============================== power of imaginary (i^n)  =============================
 
 powerComplex :: (Num a)=> Int -> Complex a
 powerComplex x
