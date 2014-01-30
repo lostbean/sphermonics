@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE DeriveGeneric              #-}
 
 module Hammer.Texture.SH.Pyramid
        ( L (..)
@@ -27,6 +28,11 @@ module Hammer.Texture.SH.Pyramid
 
 import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as U
+
+import           GHC.Generics        (Generic)
+
+import           Data.Vector.Binary
+import           Data.Binary
 
 class PyraKey k where
   isKeyInRange :: k -> Bool
@@ -152,13 +158,13 @@ sum1 m = m + 1
 
 -- ================================= Pyramid =====================================
 
-newtype L = L { unL :: Int } deriving (Show, Eq, Num, Enum, Ord)
-newtype M = M { unM :: Int } deriving (Show, Eq, Num, Enum, Ord)
-newtype N = N { unN :: Int } deriving (Show, Eq, Num, Enum, Ord)
+newtype L = L { unL :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
+newtype M = M { unM :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
+newtype N = N { unN :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
 
-newtype LF = LF { unLF :: Int } deriving (Show, Eq, Num, Enum, Ord)
-newtype MF = MF { unMF :: Int } deriving (Show, Eq, Num, Enum, Ord)
-newtype NF = NF { unNF :: Int } deriving (Show, Eq, Num, Enum, Ord)
+newtype LF = LF { unLF :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
+newtype MF = MF { unMF :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
+newtype NF = NF { unNF :: Int } deriving (Show, Eq, Num, Enum, Ord, Generic)
 
 lf2l :: LF -> L
 lf2l (LF l) = L $ abs l
@@ -180,21 +186,42 @@ n2nf (N n) = NF n
 
 data (U.Unbox a, PyraKey k)=> Pyramid k a =
   Pyramid
-  { maxStack :: Int
+  { maxKey   :: k
+  , maxStack :: Int
   , pyramid  :: U.Vector a
   } deriving (Show)
 
+instance (Binary a, U.Unbox a, Binary k ,PyraKey k)=> Binary (Pyramid k a) where
+  put (Pyramid k s p) = do
+    put k
+    put s
+    put p
+
+  get = do
+    s <- get
+    k <- get
+    p <- get
+    return (Pyramid k s p)
+
+instance Binary L
+instance Binary M
+instance Binary N
+instance Binary LF
+instance Binary MF
+instance Binary NF
+
 unsafeMkPyramid :: (U.Unbox a, PyraKey k)=> Int -> U.Vector a -> Pyramid k a
-unsafeMkPyramid = Pyramid
+unsafeMkPyramid s = Pyramid (getMaxKey s) s
 
 getLinSize :: (PyraKey k)=> k -> Int
 getLinSize = (+1) . getKeyPos
 
 generatePyramid :: (U.Unbox a, PyraKey k)=> (k -> a) -> Int -> Pyramid k a
 generatePyramid func smax = let
+  k   = getMaxKey smax
   ks  = V.fromList $ genLinSeq smax
   vec = U.convert $ V.map func ks
-  in Pyramid smax vec
+  in Pyramid k smax vec
 
 zipPyramidWith :: (U.Unbox a, U.Unbox b, U.Unbox c, PyraKey k, Eq k)=>
                   (a -> b -> c) -> Pyramid k a -> Pyramid k b -> Pyramid k c
@@ -215,7 +242,7 @@ mapPyramid func py = py { pyramid = U.map func (pyramid py) }
 (%!) :: (U.Unbox a, PyraKey k)=> Pyramid k a -> k -> a
 Pyramid{..} %! key = pyramid U.! (getKeyPos key)
 
-
+-- ========================================= Test ========================================
 
 testIndexAccess :: Int -> Bool
 testIndexAccess n = let
