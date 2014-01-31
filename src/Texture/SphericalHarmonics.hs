@@ -7,7 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TypeFamilies               #-}
 
-module Hammer.Texture.SphericalHarmonics
+module Texture.SphericalHarmonics
        ( SH (genSHFunc)
        , evalSH
        , findSHCoef
@@ -37,9 +37,9 @@ import           System.Random
 
 import           Hammer.Math.Algebra
 import           Hammer.Render.VTK.VTKRender
-import           Hammer.Texture.SH.Pyramid
-import           Hammer.Texture.SH.SupportFunctions
-import           Hammer.Texture.SH.HyperSphere
+import           Texture.SH.Pyramid
+import           Texture.SH.SupportFunctions
+import           Texture.SH.HyperSphere
 
 import           Debug.Trace
 dbg s x = trace (s L.++ show x) x

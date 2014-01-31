@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Hammer.Texture.SH.SupportFunctions
+module Texture.SH.SupportFunctions
        ( -- * Associated Legendre polynomials (Recursion)
          genAssLegenPyramid
        , genAssLegenFullPyramid
@@ -26,7 +26,7 @@ import           Math.Gamma                  (gamma)
 
 import           Data.Complex
 
-import           Hammer.Texture.SH.Pyramid
+import           Texture.SH.Pyramid
 
 import Debug.Trace
 

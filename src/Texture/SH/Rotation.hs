@@ -5,7 +5,7 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 
-module Hammer.Texture.SH.Rotation where
+module Texture.SH.Rotation where
 
 {--
 ( rotM
@@ -29,11 +29,11 @@ import           Numeric.LinearAlgebra ((<>))
 import           Numeric.Container     (Product, add)
 
 -- import           Hammer.Math.Algebra
-import           Hammer.Texture.SH.Pyramid
-import           Hammer.Texture.SH.HyperSphere
-import           Hammer.Texture.SH.SupportFunctions
-import           Hammer.Texture.SphericalHarmonics
-import           Hammer.Texture.Orientation
+import           Texture.SH.Pyramid
+import           Texture.SH.HyperSphere
+import           Texture.SH.SupportFunctions
+import           Texture.SphericalHarmonics
+import           Texture.Orientation
 
 import           Debug.Trace
 dbg s x = trace (show s L.++ show x) x

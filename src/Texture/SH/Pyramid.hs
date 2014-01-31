@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE DeriveGeneric              #-}
 
-module Hammer.Texture.SH.Pyramid
+module Texture.SH.Pyramid
        ( L (..)
        , M (..)
        , N (..)
