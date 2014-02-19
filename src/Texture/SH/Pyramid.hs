@@ -16,9 +16,10 @@ module Texture.SH.Pyramid
        , PyraKey (..)
        , Pyramid
          ( pyramid
-         , maxStack
+         , maxKey
          )
        , getLinSize
+       , getMaxStack
        , generatePyramid
        , unsafeMkPyramid
        , zipPyramidWith
@@ -35,10 +36,11 @@ import           Data.Vector.Binary
 import           Data.Binary
 
 class PyraKey k where
-  isKeyInRange :: k -> Bool
-  getKeyPos    :: k -> Int
-  getMaxKey    :: Int -> k
-  genLinSeq    :: Int -> [k]
+  isKeyInRange  :: k -> Bool
+  getKeyPos     :: k -> Int
+  getStackLevel :: k -> Int
+  getMaxKey     :: Int -> k
+  genLinSeq     :: Int -> [k]
 
 instance PyraKey (L, M) where
   {-# INLINE isKeyInRange #-}
@@ -51,6 +53,7 @@ instance PyraKey (L, M) where
     -- find the cumulative size of until the previous stack
     -- therefore it is sum (l)
     in (sumN l) + l - m
+  getStackLevel = unL . fst
   getMaxKey l = (L l, M 0)
   genLinSeq l = [ (li, mi)
                 | li <- [0 .. L l]
@@ -71,6 +74,7 @@ instance PyraKey (L, MF) where
     -- that turns to be: 2*sumN l - sum1 l
     mStack = (l+1) * (l-1) + 1
     in mStack + m'
+  getStackLevel = unL . fst
   getMaxKey l = (L l, MF (-l))
   genLinSeq l = [ (li, mi)
                 | li <- [L 0 .. L l]
@@ -84,6 +88,7 @@ instance PyraKey (N, L) where
   {-# INLINE genLinSeq    #-}
   isKeyInRange (N n, L l) = n >= 0 && l >= 0 && l <= n
   getKeyPos    (N n, L l) = sumN n + l
+  getStackLevel = unN . fst
   getMaxKey n = (N n, L n)
   genLinSeq n = [ (ni, li)
                 | ni <- [N 0 .. N n]
@@ -137,7 +142,8 @@ instance PyraKey (N, L, MF) where
     --nlStack = sumN2 n
     lStack  = l * l
     in nlStack + lStack + m'
-  getMaxKey n = (N n, L n, MF (-n))
+  getStackLevel (n, _, _) = unN n
+  getMaxKey i = let n = if even i then i else i - 1 in (N n, L n, MF (-n))
   genLinSeq n = [ (ni, li, mi)
                 | ni <- [0, 2 .. N n]
                 , li <- let l = unN ni in [0 .. L l]
@@ -187,21 +193,18 @@ n2nf (N n) = NF n
 data (U.Unbox a, PyraKey k)=> Pyramid k a =
   Pyramid
   { maxKey   :: k
-  , maxStack :: Int
   , pyramid  :: U.Vector a
   } deriving (Show)
 
 instance (Binary a, U.Unbox a, Binary k ,PyraKey k)=> Binary (Pyramid k a) where
-  put (Pyramid k s p) = do
+  put (Pyramid k p) = do
     put k
-    put s
     put p
 
   get = do
-    s <- get
     k <- get
     p <- get
-    return (Pyramid k s p)
+    return (Pyramid k p)
 
 instance Binary L
 instance Binary M
@@ -211,22 +214,25 @@ instance Binary MF
 instance Binary NF
 
 unsafeMkPyramid :: (U.Unbox a, PyraKey k)=> Int -> U.Vector a -> Pyramid k a
-unsafeMkPyramid s = Pyramid (getMaxKey s) s
+unsafeMkPyramid s = Pyramid (getMaxKey s)
 
 getLinSize :: (PyraKey k)=> k -> Int
 getLinSize = (+1) . getKeyPos
+
+getMaxStack :: (PyraKey k, U.Unbox a)=> Pyramid k a -> Int
+getMaxStack = getStackLevel . maxKey
 
 generatePyramid :: (U.Unbox a, PyraKey k)=> (k -> a) -> Int -> Pyramid k a
 generatePyramid func smax = let
   k   = getMaxKey smax
   ks  = V.fromList $ genLinSeq smax
   vec = U.convert $ V.map func ks
-  in Pyramid k smax vec
+  in Pyramid k vec
 
 zipPyramidWith :: (U.Unbox a, U.Unbox b, U.Unbox c, PyraKey k, Eq k)=>
                   (a -> b -> c) -> Pyramid k a -> Pyramid k b -> Pyramid k c
 zipPyramidWith func pya pyb
-  | (maxStack pya) == (maxStack pyb) = pya {pyramid = v}
+  | (maxKey pya) == (maxKey pyb) = pya {pyramid = v}
   | otherwise = error "Can't zip two Pyramids with different structures."
   where
     v = U.zipWith func (pyramid pya) (pyramid pyb)

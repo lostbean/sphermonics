@@ -173,7 +173,7 @@ instance SH SO3 Double where
 {-# INLINE evalSH #-}
 evalSH :: (SH pi a, U.Unbox a, Num a, PyraKey (PyIx pi a))=> Pyramid (PyIx pi a) a -> pi -> a
 evalSH pyC = \x -> let
-  ni  = maxStack pyC
+  ni  = getMaxStack pyC
   shf = genSHFunc ni x
   ps  = genLinSeq ni
   {-# INLINE func #-}
