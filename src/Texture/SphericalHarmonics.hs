@@ -229,7 +229,7 @@ plotSHFuncFamily l = let
   lms         = genLinSeq l :: [(L, MF)]
   addLM :: VTK Vec3 -> (L, MF) -> VTK Vec3
   addLM acc lmf = let
-    func i _ = evalSingleSH lmf (grid V.!i)
+    func i _ = evalSingleSH lmf (grid U.!i)
     attr = mkPointAttr (show lmf) func
     in addDataPoints acc attr
   in L.foldl addLM vtk lms
@@ -240,7 +240,7 @@ plotHSHFuncFamily n = let
   lms         = genLinSeq n :: [(N, L, MF)]
   addLM :: VTK Vec3 -> (N, L, MF) -> VTK Vec3
   addLM acc nlmf = let
-    func i _ = evalSingleHSH nlmf (grid V.!i)
+    func i _ = evalSingleHSH nlmf (grid U.!i)
     attr = mkPointAttr (show nlmf) func
     in addDataPoints acc attr
   in L.foldl addLM vtk lms
@@ -297,7 +297,7 @@ testHSH func = let
 testHSH2 :: Int -> Vector (Double, SO3) -> IO ()
 testHSH2 n xs = let
   c   = findSHCoefWeight n xs
-  ps  = renderSO3PointsVTK $ V.map snd xs
+  ps  = renderSO3PointsVTK $ V.convert $ V.map snd xs
   vtk = renderSO3SolidVTK (evalSH c)
   in do
     writeUniVTKfile ("/home/edgar/Desktop/SHS-test-points.vtu") False ps
