@@ -36,7 +36,8 @@ import           Data.Complex
 import           System.Random
 
 import           Hammer.Math.Algebra
-import           Hammer.Render.VTK.VTKRender
+import           Hammer.VTK
+
 import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
 import           Texture.SH.HyperSphere
