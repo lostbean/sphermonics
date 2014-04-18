@@ -5,16 +5,13 @@ import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
 
 import Options.Applicative
-import Texture.SH.Rotation
-import Texture.TesseractGrid
-import Texture.Orientation
-import Texture.SH.HyperSphere
 import Data.Binary
 import Data.Complex
 
+import Texture.TesseractGrid
+import Texture.Orientation
 import Texture.SphericalHarmonics
-import Texture.SH.Pyramid
-import Texture.SH.SupportFunctions
+import Texture.HyperSphere
 
 
 data TableGen =

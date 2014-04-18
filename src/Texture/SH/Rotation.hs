@@ -47,11 +47,12 @@ import           Numeric.LinearAlgebra ((<>))
 import           Numeric.Container     (Product, add, ident, ctrans, multiply, cmap)
 import           System.Random
 
-import           Texture.SH.Pyramid
-import           Texture.SH.HyperSphere
-import           Texture.SH.SupportFunctions
-import           Texture.SphericalHarmonics
+import           Texture.HyperSphere
 import           Texture.Orientation
+
+import           Texture.SH.Harmonics
+import           Texture.SH.Pyramid
+import           Texture.SH.SupportFunctions
 
 import           Debug.Trace
 dbg s x = trace (show s L.++ show x) x
