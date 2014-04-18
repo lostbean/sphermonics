@@ -17,7 +17,7 @@ module Texture.SphericalHarmonics
        , testHSH
        , testHSH2
        , genSpread
-       , testSH
+       --, testSH
        , printSH
        , writeQuater
        , calcZ
@@ -135,6 +135,35 @@ calcZ nlmf@(n, l, mf) pyK pyP pyC SO3{..}
       z4 = pyP %! (l, mf)
       in z1 * z2 * z3 * z4
 
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- TESTING and IMPLEMENT MEMORIZATION
+
+fixAngle :: Double -> Double
+fixAngle x
+  | x < 0     = fixAngle (x + 2*pi)
+  | otherwise = x
+
+memoLegendreFullPyramid :: Double -> Pyramid (L, MF) Double
+memoLegendreFullPyramid = (mem V.!) . round . (/step) . fixAngle
+  where
+    mem :: Vector (Pyramid (L, MF) Double)
+    mem = V.map (genAssLegenFullPyramid (L 30) . cos) ws
+    ws  = V.enumFromStepN 0 step n
+    n   = 360
+    step = pi / (fromIntegral n)
+
+memoGegenbauerPyramid :: Double -> Pyramid (N, L) Double
+memoGegenbauerPyramid = let
+  mem :: Vector (Pyramid (N, L) Double)
+  mem = V.map (genGegenbauerPyramid (N 30) . cos) ws
+  ws  = V.enumFromStepN 0 step n
+  n   = 180
+  step = pi / (fromIntegral n)
+  in (mem V.!) . round . (/step) . (*0.5) . fixAngle
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
 -- =============================== Spherical Harmonic Class ==============================
 
 class SH a b where
@@ -159,6 +188,8 @@ instance SH SO3 (Complex Double) where
   type PyIx SO3 (Complex Double) = (N, L, MF)
   genSHFunc ni = \r@(SO3{..}) -> let
     k  = generatePyramid calcHyperK ni
+    --p  = memoLegendreFullPyramid so3Theta
+    --c  = memoGegenbauerPyramid   so3Omega
     p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
     c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
     in generatePyramid (\nlm -> calcZC nlm k p c r) ni
@@ -291,7 +322,7 @@ testHSH :: (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double) -> IO ()
 testHSH func = let
   xs :: Vector (Double, SO3)
   xs  = V.fromList [(10, SO3 (pi/2) (pi/2) (pi/2)), (10, SO3 pi (pi/4) 0)]
-  c   = findSHCoefWeight 18 xs
+  c   = findSHCoefWeight 7 xs
   vtk = renderSO3SolidVTK (evalSH $ func c)
   in writeUniVTKfile ("/home/edgar/Desktop/SHS-test.vtu") False vtk
 
