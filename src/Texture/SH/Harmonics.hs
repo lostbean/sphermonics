@@ -13,17 +13,16 @@ module Texture.SH.Harmonics
        , findSHCoef
        , findSHCoefWith
        , findSHCoefWeight
-         -- * test functions (TODO remove)
-       , testHSH
-       , testHSH2
-       , genSpread
-       --, testSH
-       , printSH
-       , writeQuater
-       , calcZ
-       , calcHyperK
+         -- * Plotting
+       , plotSH
+       , plotHSH
+       , plotSH_C
+       , plotHSH_C
+       , plotSHPoints
+       , plotHSHPoints
        , plotSHFuncFamily
        , plotHSHFuncFamily
+       , writeQuater
        ) where
 
 import qualified Data.List           as L
@@ -33,12 +32,12 @@ import qualified Data.Vector.Unboxed as U
 import           Data.Vector         (Vector)
 
 import           Data.Complex
-import           System.Random
 
 import           Hammer.Math.Algebra
 import           Hammer.VTK
 
 import           Texture.HyperSphere
+import           Texture.Orientation
 
 import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
@@ -241,7 +240,7 @@ findSHCoefWith n func xs = let
   total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
   in mapPyramid (/np) total
 
--- ================================= Test functions ======================================
+-- =============================== Plotting Functions ====================================
 
 evalSingleSH :: (L, MF) -> SO2 -> Double
 evalSingleSH  lmf@(l,_) = \x@(SO2{..}) -> let
@@ -278,6 +277,96 @@ plotHSHFuncFamily n = let
     in addDataPoints acc attr
   in L.foldl addLM vtk lms
 
+
+plotSH_C :: String
+            -> [SO2]
+            -> (Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double)
+            -> IO ()
+plotSH_C name ss func = let
+  xs :: Vector (Complex Double, SO2)
+  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
+  c   = findSHCoefWeight 10 xs
+  vtk = renderSO2VTK (evalSH $ func c)
+  in writeQuater ("SH_C-" ++ name) vtk
+
+plotHSH_C :: String
+             -> [SO3]
+             -> (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double)
+             -> IO ()
+plotHSH_C name ss func = let
+  xs :: Vector (Complex Double, SO3)
+  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
+  c   = findSHCoefWeight 6 xs
+  vtk = renderSO3SolidVTK (evalSH $ func c)
+  in writeQuater ("HSH_C-" ++ name) vtk
+
+plotSH :: String
+          -> [SO2]
+          -> (Pyramid (L, MF) Double -> Pyramid (L, MF) Double)
+          -> IO ()
+plotSH name ss func = let
+  xs :: Vector (Double, SO2)
+  xs  = V.fromList $ map (\s -> (10, s)) ss
+  c   = findSHCoefWeight 10 xs
+  vtk = renderSO2VTK (evalSH $ func c)
+  in writeQuater ("SH-" ++ name) vtk
+
+plotHSH :: String
+           -> [SO3]
+           -> (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double)
+           -> IO ()
+plotHSH name ss func = let
+  xs :: Vector (Double, SO3)
+  xs  = V.fromList $ map (\s -> (10, s)) ss
+  c   = findSHCoefWeight 6 xs
+  vtk = renderSO3SolidVTK (evalSH $ func c)
+  in writeQuater ("HSH-" ++ name) vtk
+
+plotSHPoints :: [SO2] -> [SO3] -> [SO3] -> IO ()
+plotSHPoints ss as ps = let
+  ss'   = U.fromList ss
+  as'   = U.map so3ToQuaternion $ U.fromList as
+  ps'   = U.map so3ToQuaternion $ U.fromList ps
+  qplot = renderSO2PointsVTK ss'
+  aplot = renderSO2PointsVTK $ U.concatMap (\r -> U.map (arot r) ss') as'
+  pplot = renderSO2PointsVTK $ U.concatMap (\r -> U.map (prot r) ss') ps'
+  arot r g = cartToSO2 $ activeVecRotation  (so2ToCart g) r
+  prot r g = cartToSO2 $ passiveVecRotation (so2ToCart g) r
+  in do
+    writeQuater "SH-original-points" qplot
+    writeQuater "SH-active-points"   aplot
+    writeQuater "SH-passive-points"  pplot
+
+plotHSHPoints :: [SO3] -> [SO3] -> [SO3] -> IO ()
+plotHSHPoints ss as ps = let
+  ss'   = U.map so3ToQuaternion $ U.fromList ss
+  as'   = U.map so3ToQuaternion $ U.fromList as
+  ps'   = U.map so3ToQuaternion $ U.fromList ps
+  qplot = renderSO3PointsVTK $ U.fromList ss
+  aplot = renderSO3PointsVTK $ U.concatMap (\r -> U.map (arot r) ss') as'
+  pplot = renderSO3PointsVTK $ U.concatMap (\r -> U.map (prot r) ss') ps'
+  arot r g = quaternionToSO3 $ g #<= r
+  prot r g = quaternionToSO3 $ activeRot g r
+  in do
+    writeQuater "HSH-original-points" qplot
+    writeQuater "HSH-active-points"   aplot
+    writeQuater "HSH-passive-points"  pplot
+
+-- TODO  move to Orientation and add test case
+-- | Applies an active rotation to an other rotation. It means that the second rotation is
+-- applied on the reference frame instead of the rotated frame. It is used for applying
+-- sample symmetry.
+activeRot :: Quaternion -> Quaternion -> Quaternion
+activeRot q1 q2 = let
+  (q20, q2v) = splitQuaternion q2
+  q2vAct     = activeVecRotation q2v (invert q1)
+  in q1 #<= unsafeMergeQuaternion (q20, q2vAct)
+
+writeQuater :: (RenderElemVTK a)=> String -> VTK a -> IO ()
+writeQuater name = writeUniVTKfile ("/home/edgar/Desktop/" ++ name ++ ".vtu") False
+
+-- ================================= Test functions ======================================
+
 testZ :: SO2 -> Bool
 testZ r = let
   theta = so2Theta r
@@ -299,52 +388,3 @@ testP x = let
   t4 = (p %! (3,  3)) - (-15*(1-x^2)**(3/2))
   t5 = (p %! (3, -3)) - (-15*(1-x^2)**(3/2))/(-720)
   in and $ dbg "" $ map ((< 10-8) . abs) [t1, t2, t3, t4, t5]
-
-testSH :: (Pyramid (L, MF) Double -> Pyramid (L, MF) Double) -> IO ()
-testSH func = let
-  xs :: Vector (Double, SO2)
-  xs  = V.fromList [(10, SO2 0 (pi/4)), (10, SO2 (pi/4) (pi/2)), (10, SO2 (pi/2) (3*pi/4))]
-  --xs  = V.fromList [(10, (0, pi/4)), (10, (pi/4, pi/2)), (10, (pi/2, 3*pi/4))]
-  c   = findSHCoefWeight 10 xs
-  vtk = renderSO2VTK (evalSH $ func c)
-  in writeQuater "ODF-SH-test-" vtk
-
-genSpread :: SO3 -> IO (Vector (Double, SO3))
-genSpread SO3{..} = let
-  s = 10*pi/180
-  func = do
-    o <- randomRIO (so3Omega - s, so3Omega + s)
-    t <- randomRIO (so3Theta - s, so3Theta + s)
-    p <- randomRIO (so3Phi   - s, so3Phi   + s)
-    return (1, SO3 o t p)
-  in V.replicateM 50 func
-
-testHSH :: (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double) -> IO ()
-testHSH func = let
-  xs :: Vector (Double, SO3)
-  xs  = V.fromList [(10, SO3 (pi/2) (pi/2) (pi/2)), (10, SO3 pi (pi/4) 0)]
-  c   = findSHCoefWeight 7 xs
-  vtk = renderSO3SolidVTK (evalSH $ func c)
-  in writeUniVTKfile ("/home/edgar/Desktop/SHS-test.vtu") False vtk
-
-testHSH2 :: Int -> Vector (Double, SO3) -> IO ()
-testHSH2 n xs = let
-  c   = findSHCoefWeight n xs
-  ps  = renderSO3PointsVTK $ V.convert $ V.map snd xs
-  vtk = renderSO3SolidVTK (evalSH c)
-  in do
-    writeUniVTKfile ("/home/edgar/Desktop/SHS-test-points.vtu") False ps
-    writeUniVTKfile ("/home/edgar/Desktop/SHS-test.vtu") False vtk
-
-printSH :: Pyramid (L, MF) (Double) -> IO ()
-printSH c = let
-  vtk = renderSO2VTK (evalSH c)
-  in writeUniVTKfile ("/home/edgar/Desktop/SH-test.vtu") False vtk
-
-printHSH :: Pyramid (N, L, MF) (Double) -> IO ()
-printHSH c = let
-  vtk = renderSO3SolidVTK (evalSH c)
-  in writeUniVTKfile ("/home/edgar/Desktop/HSH-test.vtu") False vtk
-
-writeQuater :: (RenderElemVTK a)=> String -> VTK a -> IO ()
-writeQuater name = writeUniVTKfile ("/home/edgar/Desktop/" ++ name ++ ".vtu") False

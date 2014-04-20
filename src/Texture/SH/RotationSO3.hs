@@ -157,55 +157,23 @@ realPartMatrixSH l = let
 -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 {--
-
 rotPassiveSH + (SO3 0 0 pi) => active rotation
 rotActiveSH + (SO3 0 0 (\x -> 2pi - x)) => active rotation
 --}
 
 testRotSH :: IO ()
-testRotSH = testSH_C (fromComplexSH_wrong . rotActiveSH (SO3 (pi/3) (pi/3) (2*pi-2*pi/5)))
---testRotSH = testSH $ rotPassiveRealSH (SO3 (-pi/2) (pi/2) (pi/2))
-
-testSH_C :: (Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double) -> IO ()
-testSH_C func = let
-  xs :: U.Vector (Complex Double, SO2)
-  xs   = U.fromList [(10 :+ 0, (SO2 0 0)), (20 :+ 0, SO2 (pi/2) (pi/2))]
-  pxs  = renderSO2PointsVTK $ U.map snd xs
-  arxs = renderSO2PointsVTK $ U.map (arot (SO3 (pi/3) (pi/3) (2*pi/5)) . snd) xs
-  prxs = renderSO2PointsVTK $ U.map (prot (SO3 (pi/3) (pi/3) (2*pi/5)) . snd) xs
-  c   = findSHCoefWeight 10 (V.convert xs)
-  rvtk = renderSO2VTK (evalSH  $ func c)
-  ovtk = renderSO2VTK (evalSH $ fromComplexSH_wrong c)
-  arot r g = cartToSO2 $ activeVecRotation  (so2ToCart g) (so3ToQuaternion r)
-  prot r g = cartToSO2 $ passiveVecRotation (so2ToCart g) (so3ToQuaternion r)
+testRotSH = let
+  g1  = SO2 (pi/4) (pi/2)
+  g2  = SO2 (pi/3) (1.5*pi)
+  rot = SO3 (pi/3) (pi/3) (pi)
   in do
-    writeQuater "SH-original-points" pxs
-    writeQuater "SH-active-rotated-points"  arxs
-    writeQuater "SH-passive-rotated-points" prxs
-    writeQuater "SH-original-ODF"    ovtk
-    writeQuater "SH-rotated-ODF"     rvtk
-
-testSH :: (Pyramid (L, MF) Double -> Pyramid (L, MF) Double) -> IO ()
-testSH func = let
-  xs :: U.Vector (Double, SO2)
-  xs  = U.fromList [(10, SO2 0 0), (10, SO2 (pi/4) (pi/4)), (10, SO2 (pi/2) (pi/2))]
-  pxs = renderSO2PointsVTK $ U.map snd xs
-  rxs = renderSO2PointsVTK $ U.map (rot (SO3 (pi/2) (pi/2) 0) . snd) xs
-  c   = findSHCoefWeight 10 (V.convert xs)
-  rvtk = renderSO2VTK (evalSH $ func c)
-  ovtk = renderSO2VTK (evalSH c)
-  rot r g = cartToSO2 $ activeVecRotation (so2ToCart g) (so3ToQuaternion r)
-  in do
-    writeQuater "SH-original-points" pxs
-    writeQuater "SH-rotated-points"  rxs
-    writeQuater "SH-original-ODF"    ovtk
-    writeQuater "SH-rotated-ODF"     rvtk
-
-testSHRot :: Pyramid (L, MF) Double
-testSHRot = let
-  xs :: Vector (Double, SO2)
-  xs = V.fromList [(10, SO2 0 0), (10, SO2 (pi/4) (pi/4)), (10, SO2 (pi/2) (pi/2))]
-  in findSHCoefWeight 10 xs
+    plotSHPoints [g1, g2] [rot] [rot]
+    plotSH_C "initial" [g1, g2] fromComplexSH_wrong 
+    plotSH   "initial" [g1, g2] id
+    plotSH_C "active"  [g1, g2] (fromComplexSH_wrong . rotActiveSH rot)
+    plotSH   "active"  [g1, g2] (rotActiveRealSH rot)
+    plotSH_C "passive" [g1, g2] (fromComplexSH_wrong . rotPassiveSH rot)
+    plotSH   "passive" [g1, g2] (rotPassiveRealSH rot)
 
 rotMZ :: Int -> Double -> M.Matrix (Complex Double)
 rotMZ l omega = let

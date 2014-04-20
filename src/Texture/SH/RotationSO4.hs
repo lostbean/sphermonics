@@ -194,8 +194,9 @@ realPartMatrixHSH l = let
 
 toRealMatrix :: M.Matrix (Complex Double) -> M.Matrix Double
 toRealMatrix m = let
-  l = (cols m - 1) `quot` 2
-  u = realPartMatrixHSH l
+  nsqrt = round $ sqrt $ (fromIntegral $ cols m :: Double)
+  l = nsqrt - 1
+  u = M.diagBlock $ map realPartMatrixHSH [0 .. l]
   in cmap realPart $ u `multiply` m `multiply` (ctrans u)
 
 -- ================================ Conversion to real Pyramid ===========================
@@ -210,6 +211,14 @@ fromComplexHSH pyC = let
   in pyC { pyramid = pyra }
 
 -- ================================ Useful HSH functions =================================
+
+-- | Applies both active and passive rotations on a Hyper Spherical Harmonics. The active
+-- one is a rotation on the crystal reference frame and the passive is on the sample frame.
+rotRHSH :: (SO3, SO3) -> Pyramid (N, L, MF) Double -> Pyramid (N, L, MF) Double
+rotRHSH (ac, pa) = \hsh -> let
+  n      = getMaxStack hsh
+  vecmat = V.map toRealMatrix $ vecRotMatrixHSH n ac pa
+  in applyRotMatrixHSH vecmat hsh
 
 -- | Applies both active and passive rotations on a Hyper Spherical Harmonics. The active
 -- one is a rotation on the crystal reference frame and the passive is on the sample frame.
@@ -229,78 +238,34 @@ applyRotMatrixHSH rotvec = multNStack (rotvec V.!)
 
 -- ======================================== Test ========================================
 
--- | Applies both active and passive rotations on a Hyper Spherical Harmonics. The active
--- one is a rotation on the crystal reference frame and the passive is on the sample frame.
-rotRHSH :: (SO3, SO3) -> Pyramid (N, L, MF) Double -> Pyramid (N, L, MF) Double
-rotRHSH (ac, pa) = \hsh -> let
-  n      = getMaxStack hsh
-  vecmat = V.map toRealMatrix $ vecRotMatrixHSH n ac pa
-  in applyRotMatrixHSH vecmat hsh
-
 testRotHSH :: IO ()
-testRotHSH = testHSH_C (fromComplexHSH . (rotHSH (SO3 (-pi/2) (pi/2) 0, SO3 0 0 0)))
-
-testRotSymm2 = testHSH (rotRHSH (SO3 0 0 0, SO3 (pi/2) 0 0))
-
-testRotSymm :: IO ()
-testRotSymm = let
-  symm = [ (SO3 0 0 0, SO3 (-pi/2) (pi/2) 0)
-         , (SO3 (-pi/2) (pi/2) 0, SO3 0 0 0)
-         , (SO3 0 0 0, SO3 0 0 0)
-         ]
-  rot  = symmRotMatrixHSH symm 6
-  func = fromComplexHSH . applyRotMatrixHSH rot
-  in testHSH_C func
-
-testHSH_C :: (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double) -> IO ()
-testHSH_C func = let
-  s1 = SO3 (pi/2) (pi/2) (pi/2)
-  s2 = SO3 (pi/4) (pi/4) 0
-  xs :: Vector (Complex Double, SO3)
-  xs  = V.fromList [(10 :+ 0, s1), (10 :+ 0, s2)]
-  c   = findSHCoefWeight 6 xs
-  vtk = renderSO3SolidVTK (evalSH $ func c)
-
-  rot = so3ToQuaternion $ SO3 (pi/2) (pi/2) (0)
-  q1  = so3ToQuaternion s1
-  q2  = so3ToQuaternion s2
-  so  = U.fromList [s1, s2]
-  sp  = U.fromList [ quaternionToSO3 $ q1 #<= rot
-                   , quaternionToSO3 $ q2 #<= rot ]
-  sa  = U.fromList [ quaternionToSO3 $ activeRot q1 rot
-                   , quaternionToSO3 $ activeRot q2 rot ]
-  pso = renderSO3PointsVTK so
-  psp = renderSO3PointsVTK sp
-  psa = renderSO3PointsVTK sa
+testRotHSH = let
+  g1  = SO3 (pi/4) (pi/2) 0
+  g2  = SO3 (pi/3) (1.5*pi) 0
+  rot = SO3 (pi/3) (pi/3) (pi)
   in do
-    writeQuater "Rot-SHS-original-points" pso
-    writeQuater "Rot-SHS-passive-points"  psp
-    writeQuater "Rot-SHS-active-points"   psa
-    writeQuater "Rot-SHS-test" vtk
+    plotHSHPoints [g1, g2] [rot] [rot]
+    plotHSH_C "initial" [g1, g2] fromComplexHSH
+    plotHSH   "initial" [g1, g2] id
+    plotHSH_C "active"  [g1, g2] (fromComplexHSH . rotHSH (rot, SO3 0 0 0))
+    plotHSH   "active"  [g1, g2] (rotRHSH (rot, SO3 0 0 0))
+    plotHSH_C "passive" [g1, g2] (fromComplexHSH . rotHSH (SO3 0 0 0, rot))
+    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot))
 
-testHSHRotC :: Pyramid (N, L, MF) (Complex Double)
-testHSHRotC = let
-  xs :: Vector (Complex Double, SO3)
-  xs = V.fromList [(10 :+ 0, (SO3 0 0 0)), (10 :+ 0, SO3 (pi/2) (pi/4) 0), (10 :+ 0, SO3 (pi/2) 0 (pi/2))]
-  in findSHCoefWeight 10 xs
-
-testHSHRot :: Pyramid (N, L, MF) Double
-testHSHRot = let
-  xs :: Vector (Double, SO3)
-  xs = V.fromList [(10, SO3 0 0 0), (10, SO3 (pi/2) (pi/4) 0), (10, SO3 (pi/2) 0 (pi/2))]
-  in findSHCoefWeight 10 xs
+testSymmHSH :: IO ()
+testSymmHSH = let
+  g  = SO3 (pi/4) (pi/2) 0
+  r1 = (SO3 0 0 0, SO3 (-pi/2) (pi/2) 0)
+  r2 = (SO3 (-pi/2) (pi/2) 0, SO3 0 0 0)
+  r3 = (SO3 0 0 0, SO3 0 0 0)
+  symm = [r1, r2, r3]
+  rot  = symmRotMatrixHSH symm 6
+  (as, ps) = unzip symm
+  in do
+    plotHSHPoints [g] as ps
+    plotHSH_C "symmetry"  [g] (fromComplexHSH . applyRotMatrixHSH rot)
 
 -- ======================================== Trash ========================================
-
--- TODO  move to Orientation and add test case
--- | Applies an active rotation to an other rotation. It means that the second rotation is
--- applied on the reference frame instead of the rotated frame. It is used for applying
--- sample symmetry.
-activeRot :: Quaternion -> Quaternion -> Quaternion
-activeRot q1 q2 = let
-  (q20, q2v) = splitQuaternion q2
-  q2vAct     = activeVecRotation q2v (invert q1)
-  in q1 #<= unsafeMergeQuaternion (q20, q2vAct)
 
 testRowCol0 :: N -> SO3 -> SO3 -> Double
 testRowCol0 n r p = let
@@ -318,26 +283,20 @@ rotHSHRow0 :: N -> SO3 -> Vector (Complex Double)
 rotHSHRow0 n r = let
   l = (unN n) `quot` 2
   z = genSHFunc (2*l) r
-
   func (lb, mu) = let
     k1 = sqrt 2 * pi / (fromIntegral $ 2*l+1)
     z1 = conjugate $ z %! (N (2*l), L lb, MF mu)
     in (k1 :+ 0) * z1
-
   ps = V.fromList [ (lb, mu) | lb <- [0 .. 2*l], mu <- [lb, lb-1 .. (-lb)] ]
-
   in V.map func ps
 
 rotHSHCol0 :: N -> SO3 -> Vector (Complex Double)
 rotHSHCol0 n r = let
   l = (unN n) `quot` 2
   z = genSHFunc (2*l) r
-
   func (lb, mu) = let
     k1 = (-1)^lb * sqrt 2 * pi / (fromIntegral $ 2*l+1)
     z1 = z %! (N (2*l), L lb, MF mu)
     in (k1 :+ 0) * z1
-
   ps = V.fromList [ (lb, mu) | lb <- [0 .. 2*l], mu <- [lb, lb-1 .. (-lb)] ]
-
   in V.map func ps

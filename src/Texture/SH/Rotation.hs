@@ -6,6 +6,7 @@ module Texture.SH.Rotation
        , rotPassiveRealSH
          -- * Hyper Spherical Harmonics Rotation
        , rotHSH
+       , rotRHSH
        , symmRotMatrixHSH
        , applyRotMatrixHSH
          -- * HSH Rotation Matrices
@@ -18,9 +19,9 @@ module Texture.SH.Rotation
        , vecActiveRotMatrixRealSH
        , vecPassiveRotMatrixRealSH
          -- * Test
-       , testRotSymm
        , testRotSH
-       --, testRotHSH
+       , testRotHSH
+       , testSymmHSH
        , memoClebsh
 
        ) where
