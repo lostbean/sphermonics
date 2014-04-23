@@ -62,14 +62,15 @@ calcKFull (L l, MF mf) = let
   c = logFact (l + mf)
   in sqrt $ exp (a + b - log (4*pi) - c)
 
+-- TODO use conjugate and reduce Pyramid size (L, MF) -> (L, M) for pyK and pyP
 {-# INLINE calcYC #-}
 calcYC :: (L, MF) -> Pyramid (L, MF) Double -> Pyramid (L, MF) Double -> SO2 -> Complex Double
 calcYC lmf@(_, mf) pyK pyP SO2{..}
   | mf /= 0   = kC * cis (mi * so2Phi)
   | otherwise = kC
   where
-    s  = if even (unMF mf) then 1 else -1
-    kC = (s * k :+ 0)
+    -- Condon-Shortley phase already included in P (Legendre)
+    kC = (k :+ 0)
     k  = pyK %! lmf * pyP %! lmf
     mi = fromIntegral (unMF mf)
 
@@ -242,11 +243,43 @@ findSHCoefWith n func xs = let
 
 -- =============================== Plotting Functions ====================================
 
+evalSingleSH_C :: (L, MF) -> SO2 -> Complex Double
+evalSingleSH_C lmf@(l,_) = \x@(SO2{..}) -> let
+  k = generatePyramid calcKFull (unL l)
+  p = genAssLegenFullPyramid l (cos so2Theta)
+  in calcYC lmf k p x
+
 evalSingleSH :: (L, MF) -> SO2 -> Double
 evalSingleSH  lmf@(l,_) = \x@(SO2{..}) -> let
   k = generatePyramid calcK (unL l)
   p = genAssLegenPyramid l (cos so2Theta)
   in calcY lmf k p x
+
+evalSingleSH' :: (L, MF) -> SO2 -> Double
+evalSingleSH' lmf@(l, mf) x@(SO2{..})
+  | mf > 0    = s * realPart (func (l, mf) + conjugate (func (l, mf)))
+  | mf < 0    = s * realPart (ni * (func (l, -mf) - (conjugate $ func (l, -mf))))
+  | otherwise = realPart $ func (l, mf)
+  where
+    s  = if even (unMF mf) then sr else -sr
+    sr = (1 / (sqrt 2))
+    ni = (0 :+ (-1))
+    k  = generatePyramid calcKFull (unL l)
+    p  = genAssLegenFullPyramid l (cos so2Theta)
+    func pos = calcYC pos k p x
+
+evalSingleSH'' :: (L, MF) -> SO2 -> Double
+evalSingleSH'' lmf@(l, mf) x@(SO2{..})
+  | mf > 0    = realPart $ kr * (s * func (l, mf)  + (func (l, -mf)))
+  | mf < 0    = realPart $ ki * (s * func (l, -mf) - (func (l,  mf)))
+  | otherwise = realPart $ func (l, mf)
+  where
+    kr = (1 / sqrt2) :+ 0
+    ki = 0 :+ (-1 / sqrt2)
+    s  = if even (unMF mf) then 1 else -1
+    k  = generatePyramid calcKFull (unL l)
+    p  = genAssLegenFullPyramid l (cos so2Theta)
+    func pos = calcYC pos k p x
 
 evalSingleHSH :: (N, L, MF) -> SO3 -> Double
 evalSingleHSH nlmf@(n,_,_) x@(SO3{..}) = let
@@ -255,18 +288,19 @@ evalSingleHSH nlmf@(n,_,_) x@(SO3{..}) = let
   c = genGegenbauerPyramid n (cos $ so3Omega / 2)
   in calcZ nlmf k p c x
 
-plotSHFuncFamily :: Int -> VTK Vec3
+plotSHFuncFamily :: Int -> IO ()
 plotSHFuncFamily l = let
   (grid, vtk) = mkSO2 60 60
   lms         = genLinSeq l :: [(L, MF)]
   addLM :: VTK Vec3 -> (L, MF) -> VTK Vec3
   addLM acc lmf = let
-    func i _ = evalSingleSH lmf (grid U.!i)
+    func i _ = evalSingleSH'' lmf (grid U.!i)
     attr = mkPointAttr (show lmf) func
     in addDataPoints acc attr
-  in L.foldl addLM vtk lms
+  out = L.foldl addLM vtk lms
+  in writeQuater ("SH''_Family-L=" ++ show l) out
 
-plotHSHFuncFamily :: Int -> VTK Vec3
+plotHSHFuncFamily :: Int -> IO ()
 plotHSHFuncFamily n = let
   (grid, vtk) = mkSO3 30 30 30
   lms         = genLinSeq n :: [(N, L, MF)]
@@ -275,8 +309,8 @@ plotHSHFuncFamily n = let
     func i _ = evalSingleHSH nlmf (grid U.!i)
     attr = mkPointAttr (show nlmf) func
     in addDataPoints acc attr
-  in L.foldl addLM vtk lms
-
+  out = L.foldl addLM vtk lms
+  in writeQuater ("HSH_Family-N=" ++ show n) out
 
 plotSH_C :: String
             -> [SO2]
@@ -286,7 +320,7 @@ plotSH_C name ss func = let
   xs :: Vector (Complex Double, SO2)
   xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
   c   = findSHCoefWeight 10 xs
-  vtk = renderSO2VTK (evalSH $ func c)
+  vtk = renderSO2VTK (evalSH (func c))
   in writeQuater ("SH_C-" ++ name) vtk
 
 plotHSH_C :: String
@@ -297,7 +331,7 @@ plotHSH_C name ss func = let
   xs :: Vector (Complex Double, SO3)
   xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
   c   = findSHCoefWeight 6 xs
-  vtk = renderSO3SolidVTK (evalSH $ func c)
+  vtk = renderSO3SolidVTK (evalSH (func c))
   in writeQuater ("HSH_C-" ++ name) vtk
 
 plotSH :: String
@@ -372,19 +406,74 @@ testZ r = let
   theta = so2Theta r
   phi   = so2Phi   r
   z   = genSHFunc 7 r
-  p70 = (1/32) * sqrt (15/pi)    * (429 * (cos theta)^7 - 693 * (cos theta)^5 + 315 * (cos theta)^3 - 35 * cos theta)
-  p40 = (3/16) * sqrt (1/pi)     * (35 * (cos theta)^4 - 30 * (cos theta)^2 + 3)
-  p30 = (1/4)  * sqrt (7/pi)     * (5 * (cos theta)^3 - 3 * cos theta)
-  p32 = (1/4)  * sqrt (105/4*pi) * (cos theta * (sin theta)^2 * cos (2*phi))
+  p70 = (1/32) * sqrt (15/pi)    * (429 * (cos theta)^(7::Int) -
+                                    693 * (cos theta)^(5::Int) +
+                                    315 * (cos theta)^(3::Int) -
+                                    35  *  cos theta)
+  p40 = (3/16) * sqrt (1/pi)     * (35 * (cos theta)^(4::Int)-
+                                    30 * (cos theta)^(2::Int)+ 3)
+  p30 = (1/4)  * sqrt (7/pi)     * (5 *  (cos theta)^(3::Int)-
+                                    3 *   cos theta)
+  p32 = (1/4)  * sqrt (105/4*pi) * (cos theta * (sin theta)^(2::Int) * cos (2*phi))
   ts  = [ z %! (7, 0) - p70, z %! (4, 0) - p40, z %! (3, 0) - p30, z %! (3, 2) - p32]
   in and $ dbg "" $ map ((< 10-8) . abs) ts
 
 testP :: Double -> Bool
 testP x = let
   p = genAssLegenFullPyramid 4 x
-  t1 = (p %! (3,  0)) - 0.5*(5*x^3-3*x)
-  t2 = (p %! (4,  4)) - 105*(1-x^2)^2
-  t3 = (p %! (4, -4)) - (105*(1-x^2)^2)/40320
-  t4 = (p %! (3,  3)) - (-15*(1-x^2)**(3/2))
-  t5 = (p %! (3, -3)) - (-15*(1-x^2)**(3/2))/(-720)
+  t1 = (p %! (3,  0)) - 0.5*(5*x^(3::Int)-3*x)
+  t2 = (p %! (4,  4)) - 105*(1-x^(2::Int))^(2::Int)
+  t3 = (p %! (4, -4)) - (105*(1-x^(2::Int))^(2::Int))/40320
+  t4 = (p %! (3,  3)) - (-15*(1-x^(2::Int))**(3/2))
+  t5 = (p %! (3, -3)) - (-15*(1-x^(2::Int))**(3/2))/(-720)
   in and $ dbg "" $ map ((< 10-8) . abs) [t1, t2, t3, t4, t5]
+
+testSHGrid ::  U.Vector (Bool, Bool)
+testSHGrid = let
+  (grid, _) = mkSO2 30 30
+  in U.map testSH grid
+
+testSH :: SO2 -> (Bool, Bool)
+testSH x@SO2{..} = let
+  y00  = (0.5 / sqrt pi) :+ 0
+  y1n1 = ((0.5  * sqrt (3/(2*pi))   * sin so2Theta) :+ 0) * cis (-so2Phi)
+  y10  = ((0.5  * sqrt (3/pi)       * cos so2Theta) :+ 0)
+  y11  = ((-0.5 * sqrt (3/(2*pi))   * sin so2Theta) :+ 0) * cis so2Phi
+  y2n2 = ((0.25 * sqrt (15/(2*pi))  * (sin so2Theta)^(2::Int)) :+ 0) * cis (-2 * so2Phi)
+  y2n1 = ((0.5  * sqrt (15/(2*pi))  * sin so2Theta* cos so2Theta) :+ 0) * cis (-so2Phi)
+  y20  = ((0.25 * sqrt (5/pi)       * (3 * (cos so2Theta)^(2::Int) - 1)) :+ 0)
+  y21  = ((-0.5 * sqrt (15/(2*pi))  * sin so2Theta* cos so2Theta) :+ 0) * cis (so2Phi)
+  y22  = ((0.25 * sqrt (15/(2*pi))  * (sin so2Theta)^(2::Int)) :+ 0) * cis (2 * so2Phi)
+  t1 = evalSingleSH_C (0, 0) x - y00
+  t2 = evalSingleSH_C (1,-1) x - y1n1
+  t3 = evalSingleSH_C (1, 0) x - y10
+  t4 = evalSingleSH_C (1, 1) x - y11
+  t5 = evalSingleSH_C (2,-2) x - y2n2
+  t6 = evalSingleSH_C (2,-1) x - y2n1
+  t7 = evalSingleSH_C (2, 0) x - y20
+  t8 = evalSingleSH_C (2, 1) x - y21
+  t9 = evalSingleSH_C (2, 2) x - y22
+
+  s = sqrt 0.5
+  r00  = realPart y00
+  r1n1 = realPart $ (0 :+ s) * (y1n1 + y11)
+  r10  = realPart $ y10
+  r11  = realPart $ (s :+ 0) * (y1n1 - y11)
+  r2n2 = realPart $ (0 :+ s) * (y2n2 - y22)
+  r2n1 = realPart $ (0 :+ s) * (y2n1 + y21)
+  r20  = realPart $ y20
+  r21  = realPart $ (s :+ 0) * (y2n1 - y21)
+  r22  = realPart $ (s :+ 0) * (y2n2 + y22)
+  tr1 = evalSingleSH (0, 0) x - r00
+  tr2 = evalSingleSH (1,-1) x - r1n1
+  tr3 = evalSingleSH (1, 0) x - r10
+  tr4 = evalSingleSH (1, 1) x - r11
+  tr5 = evalSingleSH (2,-2) x - r2n2
+  tr6 = evalSingleSH (2,-1) x - r2n1
+  tr7 = evalSingleSH (2, 0) x - r20
+  tr8 = evalSingleSH (2, 1) x - r21
+  tr9 = evalSingleSH (2, 2) x - r22
+
+  testC = and $ dbg "testC" $ map ((< 10e-8) . magnitude) [t1, t2, t3, t4, t5, t6, t7, t8, t9]
+  testR = and $ dbg "testR" $ map ((< 10e-8) . abs) [tr1, tr2, tr3, tr4, tr5, tr6, tr7, tr8, tr9]
+  in trace (show (t4, evalSingleSH_C (1, 1) x, y11)) (testC, testR)
