@@ -15,12 +15,11 @@ import qualified Data.Packed         as M
 import           Data.Complex
 import           Foreign.Storable      (Storable)
 import           Data.Vector           (Vector)
-import           Data.Packed.Matrix    ((><))
+import           Data.Packed.Matrix    ((><), cols)
 import           Numeric.LinearAlgebra ((<>))
-import           Numeric.Container     (Product)
+import           Numeric.Container     (Product, ctrans, multiply, cmap)
 
 import           Texture.HyperSphere
-import           Texture.Orientation
 
 import           Texture.SH.Harmonics
 import           Texture.SH.Pyramid
@@ -33,25 +32,24 @@ dbg s x = trace (show s L.++ show x) x
 
 -- | Active rotation matrix series for Spherical Harmonics.
 vecActiveRotMatrixSH :: Int -> SO3 -> Vector (M.Matrix (Complex Double))
-vecActiveRotMatrixSH = calcVecRotMatrixSH id
+vecActiveRotMatrixSH l = V.map ctrans . calcVecRotMatrixSH l
 
 -- | Passive rotation matrix series for Spherical Harmonics.
 vecPassiveRotMatrixSH :: Int -> SO3 -> Vector (M.Matrix (Complex Double))
-vecPassiveRotMatrixSH = calcVecRotMatrixSH conjugate
+vecPassiveRotMatrixSH l = calcVecRotMatrixSH l
 
 -- | Active rotation matrix series for Real Spherical Harmonics.
 vecActiveRotMatrixRealSH :: Int -> SO3 -> Vector (M.Matrix Double)
-vecActiveRotMatrixRealSH = calcVecRotMatrixRealSH id
+vecActiveRotMatrixRealSH l = V.map ctrans . calcVecRotMatrixRealSH l
 
 -- | Passive rotation matrix series for Real Spherical Harmonics.
 vecPassiveRotMatrixRealSH :: Int -> SO3 -> Vector (M.Matrix Double)
-vecPassiveRotMatrixRealSH = calcVecRotMatrixRealSH conjugate
+vecPassiveRotMatrixRealSH l = calcVecRotMatrixRealSH l
 
 -- | Rotation matrix series for spherical harmonics from 2l = 0 until 2l = 2n. More
 -- info on PhD Thesis J.K. Mason eq (52).
-calcVecRotMatrixSH :: (Complex Double -> Complex Double) -> Int -> SO3 ->
-                      Vector (M.Matrix (Complex Double))
-calcVecRotMatrixSH foo llen r = let
+calcVecRotMatrixSH :: Int -> SO3 -> Vector (M.Matrix (Complex Double))
+calcVecRotMatrixSH llen r = let
   z = genSHFunc (2*llen) r
 
   func l (m', m) (L lb, MF mu) = let
@@ -60,7 +58,7 @@ calcVecRotMatrixSH foo llen r = let
     k1  = (pi / (2 * ld + 1)) * sqrt (2 * (2 * lbd + 1))
     -- calcClebshGordan j1 m1 j2 m2 j m
     c1 = calcClebshGordan (l, m') (lb, mu) (l, m)
-    z1 = foo $ z %! (N (2*l), L lb, MF mu)
+    z1 = z %! (N (2*l), L lb, MF mu)
     in ((k1 * c1) :+ 0) * z1
 
   calcAtM l (m', m) = let
@@ -68,21 +66,14 @@ calcVecRotMatrixSH foo llen r = let
     in L.foldl' (\acc p -> acc + func l (m', m) p) 0 ps
 
   buildM l = let
-    ms = [l, l-1 .. (-l)]
-    ps = [(i, j) | i <- ms, j <- ms]
+    ms = [l, l-1 .. -l]
+    ps = [(i, j) | j <- ms, i <- ms]
     in ((2*l+1) >< (2*l+1)) $ map (calcAtM l) ps
   in V.generate (llen+1) buildM
 
 -- | Same as for 'calcVecRotMatrixSH' but for real Spherical Harmonics.
-calcVecRotMatrixRealSH :: (Complex Double -> Complex Double) -> Int -> SO3 ->
-                          Vector (M.Matrix Double)
-calcVecRotMatrixRealSH foo l r = let
-  vu = calcVecRotMatrixSH foo l r
-  func i u = let
-    c  = realPartMatrixSH i
-    c' = M.trans $ M.mapMatrix conjugate c
-    in M.mapMatrix realPart $ c' <> u <> c
-  in V.imap func vu
+calcVecRotMatrixRealSH :: Int -> SO3 -> Vector (M.Matrix Double)
+calcVecRotMatrixRealSH l = V.map toRealMatrixSH . calcVecRotMatrixSH l
 
 -- ======================== Matrix multiplication on L Stack Level =======================
 
@@ -123,57 +114,64 @@ rotPassiveRealSH rot = \sh -> let l = getMaxStack sh in multLStack (vecPassiveRo
 
 -- ================================ Conversion to real Pyramid ===========================
 
+toRealMatrixSH :: M.Matrix (Complex Double) -> M.Matrix Double
+toRealMatrixSH m = let
+  l = ((cols m) - 1) `quot` 2
+  u = realPartMatrixSH l
+  in cmap realPart $ (ctrans u) `multiply` m `multiply` u
+
 -- | Transforms a complex Pyramid (L, MF) to its real equivalent.
 fromComplexSH :: Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double
-fromComplexSH pyC = generatePyramid (k . realPart . func) lmax
+fromComplexSH pyC = generatePyramid (realPart . func) lmax
   where
     lmax = getMaxStack pyC
-    k = (/ (sqrt 2))
-    i = powerComplex
+    kr   = (1 / sqrt 2) :+ 0
+    ki   = 0 :+ (-1 / sqrt 2)
     func (l, mf)
-      | mf > 0 = i (unL l)     * (s*pyC %! (l, mf) + (pyC %! (l, -mf)))
-      | mf < 0 = i (unL $ l-1) * (s*pyC %! (l, mf) - (pyC %! (l, -mf)))
+      | mf > 0    = kr * (s * pyC %! (l, mf)  + pyC %! (l, -mf))
+      | mf < 0    = ki * (s * pyC %! (l, -mf) - pyC %! (l,  mf))
       | otherwise = pyC %! (l, mf)
       where s = if even (unMF mf) then 1 else -1
 
--- =================== Conversion to real numbers transformation matrix ==================
-
 realPartMatrixSH :: Int -> M.Matrix (Complex Double)
 realPartMatrixSH l = let
+  kr = (1 / sqrt 2) :+ 0
+  -- it has to be 1 and not (-1)! Why????
+  ki = 0 :+ (1 / sqrt 2)
   calcAtM (i, j)
     | i == 0 && j == 0 = 1 :+ 0
     | abs i /= abs j   = 0 :+ 0
-    | j < 0 && i < 0   = 0 :+ (-s / (sqrt 2))
-    | j < 0 && i > 0   = 0 :+ (1 / (sqrt 2))
-    | j > 0 && i < 0   = (s / (sqrt 2)) :+ 0
-    | otherwise        = (1 / (sqrt 2)) :+ 0  --  j > 0 && i > 0
+    -- j > 0 ~> m > 0 and j < 0 ~> m < 0
+    | j > 0 && i > 0   = kr * s
+    | j > 0 && i < 0   = kr
+    | j < 0 && i > 0   = ki * s
+    | otherwise        = negate ki  --  j < 0 && i < 0
     where s = if even i then 1 else (-1)
-  in ((2*l+1) >< (2*l+1)) $ map calcAtM [(i, j) | i <- [-l..l], j <- [-l..l]]
+  ls = [l, l-1 .. -l]
+  in ((2*l+1) >< (2*l+1)) $ map calcAtM [(i, j) | i <- ls, j <- ls]
 
 -- ======================================== Test ========================================
 
--- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
--- Real SH Rotation matrix are broken. fromComplexSH doesn't work for SH but fromComplexSH_wrong works
--- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-{--
-rotPassiveSH + (SO3 0 0 pi) => active rotation
-rotActiveSH + (SO3 0 0 (\x -> 2pi - x)) => active rotation
---}
+-- | Transforms a complex Pyramid (L, MF) to its real equivalent.
+fromComplexSH2 :: Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double
+fromComplexSH2 sh = let
+  sh2 = multLStack (ctrans . realPartMatrixSH) sh
+  in mapPyramid realPart sh2
 
 testRotSH :: IO ()
 testRotSH = let
-  g1  = SO2 (pi/4) (pi/2)
-  g2  = SO2 (pi/3) (1.5*pi)
-  rot = SO3 (pi/3) (pi/3) (pi)
+  g1  = SO2 (pi/4.3) (pi/2.3)
+  g2  = SO2 (pi/3.1) (1.7*pi)
+  rot = SO3 (pi/3.6) (pi/5.5) (0.88*pi)
   in do
     plotSHPoints [g1, g2] [rot] [rot]
-    plotSH_C "initial" [g1, g2] fromComplexSH_wrong 
+    plotSH_C "initial" [g1, g2] fromComplexSH
     plotSH   "initial" [g1, g2] id
-    plotSH_C "active"  [g1, g2] (fromComplexSH_wrong . rotActiveSH rot)
+    plotSH_C "active"  [g1, g2] (fromComplexSH . rotActiveSH rot)
     plotSH   "active"  [g1, g2] (rotActiveRealSH rot)
-    plotSH_C "passive" [g1, g2] (fromComplexSH_wrong . rotPassiveSH rot)
+    plotSH_C "passive" [g1, g2] (fromComplexSH . rotPassiveSH rot)
     plotSH   "passive" [g1, g2] (rotPassiveRealSH rot)
+    plotSH   "id"      [g1, g2] (rotActiveRealSH $ SO3 0 0 0)
 
 rotMZ :: Int -> Double -> M.Matrix (Complex Double)
 rotMZ l omega = let
@@ -197,15 +195,3 @@ vecZRotMatrixHSH n omega = let
   lmax = n `quot` 2
   func l = rotMZReal l omega
   in V.generate lmax func
-
-fromComplexSH_wrong :: Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double
-fromComplexSH_wrong pyC = generatePyramid (realPart . func) lmax
-  where
-    lmax = getMaxStack pyC
-    kr = (1/(sqrt 2)) :+ 0
-    ki = 0 :+ (-1/(sqrt 2))
-    func (l, mf)
-      | mf > 0 = kr * (pyC %! (l, mf)  + s*(pyC %! (l, -mf)))
-      | mf < 0 = ki * (pyC %! (l, -mf) - s*(pyC %! (l,  mf)))
-      | otherwise = pyC %! (l, mf)
-      where s = if even (unMF mf) then 1 else -1
