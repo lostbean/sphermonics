@@ -15,7 +15,7 @@ import qualified Data.Packed         as M
 import           Data.Complex
 import           Foreign.Storable      (Storable)
 import           Data.Vector           (Vector)
-import           Data.Packed.Matrix    ((><), cols)
+import           Data.Packed.Matrix    ((><), cols, buildMatrix)
 import           Numeric.LinearAlgebra ((<>))
 import           Numeric.Container     (Product, ctrans, multiply, cmap)
 
@@ -25,8 +25,8 @@ import           Texture.SH.Harmonics
 import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
 
-import           Debug.Trace
-dbg s x = trace (show s L.++ show x) x
+--import           Debug.Trace
+--dbg s x = trace (show s L.++ show x) x
 
 -- ============================== Spherical Harmonics Rotation ===========================
 
@@ -126,29 +126,32 @@ fromComplexSH pyC = generatePyramid (realPart . func) lmax
   where
     lmax = getMaxStack pyC
     kr   = (1 / sqrt 2) :+ 0
-    ki   = 0 :+ (-1 / sqrt 2)
+    ki   = 0 :+ (1 / sqrt 2)
     func (l, mf)
-      | mf > 0    = kr * (s * pyC %! (l, mf)  + pyC %! (l, -mf))
-      | mf < 0    = ki * (s * pyC %! (l, -mf) - pyC %! (l,  mf))
+      | mf > 0    = kr * (pyC %! (l, -mf) + s * pyC %! (l,  mf))
+      | mf < 0    = ki * (pyC %! (l,  mf) - s * pyC %! (l, -mf))
       | otherwise = pyC %! (l, mf)
       where s = if even (unMF mf) then 1 else -1
 
 realPartMatrixSH :: Int -> M.Matrix (Complex Double)
 realPartMatrixSH l = let
   kr = (1 / sqrt 2) :+ 0
-  -- it has to be 1 and not (-1)! Why????
-  ki = 0 :+ (1 / sqrt 2)
+  -- Why this has to be negative? Because of the conjugate transpose?
+  ki = 0 :+ (-1 / sqrt 2)
   calcAtM (i, j)
-    | i == 0 && j == 0 = 1 :+ 0
-    | abs i /= abs j   = 0 :+ 0
-    -- j > 0 ~> m > 0 and j < 0 ~> m < 0
-    | j > 0 && i > 0   = kr * s
-    | j > 0 && i < 0   = kr
-    | j < 0 && i > 0   = ki * s
-    | otherwise        = negate ki  --  j < 0 && i < 0
-    where s = if even i then 1 else (-1)
-  ls = [l, l-1 .. -l]
-  in ((2*l+1) >< (2*l+1)) $ map calcAtM [(i, j) | i <- ls, j <- ls]
+    | mi == 0 && mj == 0 = 1 :+ 0
+    | abs mi /= abs mj   = 0 :+ 0
+    | mj > 0 && mi > 0   = kr * s
+    | mj > 0 && mi < 0   = kr
+    | mj < 0 && mi > 0   = negate $ ki * s
+    | otherwise          = ki
+    where
+      -- mi and mj range [l .. -l]
+      mi = -i + l
+      mj = -j + l
+      s  = if even mi then 1 else (-1)
+  ms = 2 * l + 1
+  in buildMatrix ms ms calcAtM
 
 -- ======================================== Test ========================================
 
@@ -165,6 +168,7 @@ testRotSH = let
   rot = SO3 (pi/3.6) (pi/5.5) (0.88*pi)
   in do
     plotSHPoints [g1, g2] [rot] [rot]
+    plotSH_C "initial2" [g1, g2] fromComplexSH2
     plotSH_C "initial" [g1, g2] fromComplexSH
     plotSH   "initial" [g1, g2] id
     plotSH_C "active"  [g1, g2] (fromComplexSH . rotActiveSH rot)
