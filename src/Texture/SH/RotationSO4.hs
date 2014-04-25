@@ -17,7 +17,7 @@ import           Data.Complex
 import           Foreign.Storable      (Storable)
 import           Data.Vector           (Vector)
 import           Data.HashMap.Strict   (HashMap)
-import           Data.Packed.Matrix    ((><), (@@>), cols)
+import           Data.Packed.Matrix    ((><), (@@>), cols, buildMatrix)
 import           Numeric.LinearAlgebra ((<>))
 import           Numeric.Container     (Product, add, ident, ctrans, multiply, cmap)
 
@@ -29,8 +29,8 @@ import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
 import           Texture.SH.RotationSO3
 
-import           Debug.Trace
-dbg s x = trace (show s L.++ show x) x
+--import           Debug.Trace
+--dbg s x = trace (show s L.++ show x) x
 
 -- =========================== Hyper Spherical Harmonics Rotation ========================
 
@@ -64,8 +64,7 @@ vecRotMatrixRealHSH n r p = let
   vt = V.generate (2*l+1) realPartMatrixHSH
   func i u = let
     t  = M.diagBlock $ V.toList $ V.take (2*i+1) vt
-    t' = M.trans $ M.mapMatrix conjugate t
-    in M.mapMatrix realPart $ t' <> u <> t
+    in M.mapMatrix realPart $ (ctrans t) <> u <> t
   in V.imap func vu
 
 -- | Calculate the rotation matrix for Hyper Spherical Harmonics (SO4) based on two SO3
@@ -178,37 +177,44 @@ getNLSlice pyC nt = generatePyramid func ni
 
 realPartMatrixHSH :: Int -> M.Matrix (Complex Double)
 realPartMatrixHSH l = let
-  calcAtM (mi, mj)
-    | mi == 0 && mj == 0 = (i l)
+  calcAtM (i, j)
+    | mi == 0 && mj == 0 = (ip l)
     | abs mi /= abs mj   = 0 :+ 0
-    | mj < 0 && mi < 0   = (i l) * ((s / (sqrt 2)) :+ 0)
-    | mj > 0 && mi < 0   = (i l) * ((1 / (sqrt 2)) :+ 0)
-    | mj < 0 && mi > 0   = (i $ l-1) * ((-1 / (sqrt 2)) :+ 0)
-    | otherwise          = (i $ l-1) * ((s  / (sqrt 2)) :+ 0) --  j > 0 && i > 0
+    | mj > 0 && mi > 0   = (ip l)     * k * s
+    | mj > 0 && mi < 0   = (ip l)     * k
+    | mj < 0 && mi > 0   = (ip $ l-1) * k * s
+    | otherwise          = (ip $ l-1) * (-k)
     where
-      i = powerComplex
-      s = if even mi then 1 else (-1)
-  ms = [l, l-1 .. (-l)]
-  ps = [(mi, mj) | mi <- ms, mj <- ms]
-  in ((2*l+1) >< (2*l+1)) $ map calcAtM ps
+      -- mi and mj range [l .. -l]
+      mi = -i + l
+      mj = -j + l
+      s  = if even mi then 1 else (-1)
+  ip = imaginaryPower
+  k  = 1 / (sqrt 2)
+  ms = 2 * l + 1
+  in buildMatrix ms ms calcAtM
 
 toRealMatrix :: M.Matrix (Complex Double) -> M.Matrix Double
 toRealMatrix m = let
   nsqrt = round $ sqrt $ (fromIntegral $ cols m :: Double)
   l = nsqrt - 1
   u = M.diagBlock $ map realPartMatrixHSH [0 .. l]
-  in cmap realPart $ u `multiply` m `multiply` (ctrans u)
+  in cmap realPart $ (ctrans u) `multiply` m `multiply` u
 
 -- ================================ Conversion to real Pyramid ===========================
 
--- | Transforms a complex Pyramid (N, L, MF) to its real equivalent.
+-- | Transforms a complex Pyramid (L, MF) to its real equivalent.
 fromComplexHSH :: Pyramid (N, L, MF) (Complex Double) -> Pyramid (N, L, MF) Double
-fromComplexHSH pyC = let
-  n       = getMaxStack pyC
-  ns      = [0, 2 .. n]
-  func ni = fromComplexSH (getNLSlice pyC (N ni))
-  pyra    = U.concat $ map (pyramid . func) ns
-  in pyC { pyramid = pyra }
+fromComplexHSH pyC = generatePyramid (realPart . func) lmax
+  where
+    lmax = getMaxStack pyC
+    kr   = (1 / sqrt 2) :+ 0
+    i    = imaginaryPower . unL
+    func (n, l, mf)
+      | mf > 0    = i  l      * kr * (s * pyC %! (n, l, mf)  + pyC %! (n, l, -mf))
+      | mf < 0    = i (l - 1) * kr * (s * pyC %! (n, l, -mf) - pyC %! (n, l,  mf))
+      | otherwise = i l       * pyC %! (n, l, mf)
+      where s = if even (unMF mf) then 1 else -1
 
 -- ================================ Useful HSH functions =================================
 
@@ -232,6 +238,10 @@ symmRotMatrixHSH symm l = let
   rot0:rots = map (\(ac, pa) -> vecRotMatrixHSH l ac pa) symm
   in L.foldl' (V.zipWith add) rot0 rots
 
+-- | Calculates the matrix that enforces symmetry on Hyper Spherical Harmonics.
+symmRotMatrixRHSH :: [(SO3, SO3)] -> Int -> Vector (M.Matrix Double)
+symmRotMatrixRHSH symm = V.map toRealMatrix . symmRotMatrixHSH symm
+
 -- | Applies a given rotation matrix to Hyper Spherical Harmonics.
 applyRotMatrixHSH :: (Product a, U.Unbox a)=> Vector (M.Matrix a) -> Pyramid (N, L, MF) a -> Pyramid (N, L, MF) a
 applyRotMatrixHSH rotvec = multNStack (rotvec V.!)
@@ -240,21 +250,22 @@ applyRotMatrixHSH rotvec = multNStack (rotvec V.!)
 
 testRotHSH :: IO ()
 testRotHSH = let
-  g1  = SO3 (pi/4) (pi/2) 0
-  g2  = SO3 (pi/3) (1.5*pi) 0
-  rot = SO3 (pi/3) (pi/3) (pi)
+  g1   = SO3 (pi/2) (pi/2) (pi/2)
+  g2   = SO3 (pi/4) (pi/4)  0
+  rot  = SO3 (-pi/2) (pi/2)  0
+  rot' = SO3 (pi/2) (pi/2) 0
   in do
     plotHSHPoints [g1, g2] [rot] [rot]
     plotHSH_C "initial" [g1, g2] fromComplexHSH
     plotHSH   "initial" [g1, g2] id
     plotHSH_C "active"  [g1, g2] (fromComplexHSH . rotHSH (rot, SO3 0 0 0))
-    plotHSH   "active"  [g1, g2] (rotRHSH (rot, SO3 0 0 0))
+    plotHSH   "active"  [g1, g2] (rotRHSH (rot', SO3 0 0 0))
     plotHSH_C "passive" [g1, g2] (fromComplexHSH . rotHSH (SO3 0 0 0, rot))
-    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot))
+    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot'))
 
 testSymmHSH :: IO ()
 testSymmHSH = let
-  g  = SO3 (pi/4) (pi/2) 0
+  g  = SO3 (0.77*pi) (0.3*pi) (0.4*pi)
   r1 = (SO3 0 0 0, SO3 (-pi/2) (pi/2) 0)
   r2 = (SO3 (-pi/2) (pi/2) 0, SO3 0 0 0)
   r3 = (SO3 0 0 0, SO3 0 0 0)
