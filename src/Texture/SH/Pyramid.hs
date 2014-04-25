@@ -35,6 +35,9 @@ import           GHC.Generics        (Generic)
 import           Data.Vector.Binary
 import           Data.Binary
 
+
+import           Debug.Trace
+
 class PyraKey k where
   isKeyInRange  :: k -> Bool
   getKeyPos     :: k -> Int
@@ -95,32 +98,24 @@ instance PyraKey (N, L) where
                 , li <- let l = unN ni in [L 0 .. L l]
                 ]
 
-{--
-instance PyraKey (L, MF, NF) where
+instance PyraKey (N, L, M) where
   {-# INLINE isKeyInRange #-}
   {-# INLINE getKeyPos    #-}
   {-# INLINE getMaxKey    #-}
   {-# INLINE genLinSeq    #-}
-  isKeyInRange (L l, MF m, NF n) = l >= 0 && abs m <= l && abs n <= l
-  getKeyPos    (L l, MF m, NF n) = let
-    -- The stack size along L is given by (2l+1)^2
-    maxLen = 2 * l + 1
-    l1 = l + 1
-    m' = l + m
-    n' = l + n
+  isKeyInRange (N n, L l, M m) = n >= 0 && l >= 0 && l <= n && m >= 0 && m <= l
+  getKeyPos    (N n, L l, M m) = let
     -- find the cumulative size of until the previous stack
-    -- therefore it is sum (2(l-1)+1)^2 = sum (2l-1)^2
-    -- that turns to be: 4*sumN2 l - 4*sumN l + sum1 l
-    mnStack = 4 * l * l1 * maxLen `quot` 6 - 2 * l * l1 + l
-    mStack  = m' * maxLen
-    in mnStack + mStack + n'
-  getMaxKey l = (L l, MF l, NF l)
-  genLinSeq l = [ (li, mi, ni)
-                | li <- [L 0 .. L l]
-                , mi <- let m = unL li in [MF m, MF (m-1) .. MF m]
-                , ni <- let n = unL li in [NF n, NF (n-1) .. NF n]
+    -- for n>= 0 then nlmStack = [1, 4, 10, 20 ..]
+    -- for l>= 0 then nlStack  = [1, 3, 6, 10  ..]
+    in sumHexPyramid (n `quot` 2) + sumN l + (l - m)
+  getStackLevel (n, _, _) = unN n
+  getMaxKey i = let n = if even i then i else i - 1 in (N n, L n, M 0)
+  genLinSeq n = [ (ni, li, mi)
+                | ni <- [0, 2 .. N n]
+                , li <- let l = unN ni in [0 .. L l]
+                , mi <- let m = unL li in [M m, M (m-1) .. M 0]
                 ]
---}
 
 instance PyraKey (N, L, MF) where
   {-# INLINE isKeyInRange #-}
@@ -149,6 +144,10 @@ instance PyraKey (N, L, MF) where
                 , li <- let l = unN ni in [0 .. L l]
                 , mi <- let m = unL li in [MF m, MF (m-1) .. MF (-m)]
                 ]
+
+{-# INLINE sumHexPyramid #-}
+sumHexPyramid :: Int -> Int
+sumHexPyramid n = n * (n + 1) * (4*n - 1) `quot` 6
 
 {-# INLINE sumN2 #-}
 sumN2 :: Int -> Int
@@ -252,6 +251,6 @@ Pyramid{..} %! key = pyramid U.! (getKeyPos key)
 
 testIndexAccess :: Int -> Bool
 testIndexAccess n = let
-  ks = V.fromList $ genLinSeq n :: V.Vector (N, L, MF)
-  func i p = i == getKeyPos p
+  ks = V.fromList $ genLinSeq n :: V.Vector (N, L, M)
+  func i p = trace (show (i, p, getKeyPos p)) $ i == getKeyPos p
   in V.and $ V.imap func ks

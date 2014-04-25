@@ -42,9 +42,8 @@ import           Texture.Orientation
 import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
 
-import           Debug.Trace
-dbg s x = trace (s L.++ show x) x
-
+--import           Debug.Trace
+--dbg s x = trace (s L.++ show x) x
 
 sqrt2 :: Double
 sqrt2 = sqrt 2
@@ -89,8 +88,12 @@ calcY (l, mf) pyK pyP SO2{..}
 -- =============================== HyperSpherical Harmonics ==============================
 
 {-# INLINE calcHyperK #-}
-calcHyperK :: (N, L, MF) -> Double
-calcHyperK (N n, L l, MF m) = let
+calcHyperK :: (N, L, M) -> Double
+calcHyperK (n, l, m) = calcHyperKFull (n, l, m2mf m)
+
+-- | Constant used in the hyperspherical function
+calcHyperKFull :: (N, L, MF) -> Double
+calcHyperKFull (N n, L l, MF m) = let
   n1 = log $ fromIntegral (2 * l + 1)
   n2 = logFact (l - m)
   n3 = log $ fromIntegral (n + 1)
@@ -101,27 +104,45 @@ calcHyperK (N n, L l, MF m) = let
   r2 = (fromIntegral l) * (log 2) + (logFact l) - (log pi)
   in exp (r1 + r2)
 
-{-# INLINE calcZC #-}
+-- | Complex hyperspherical harmonic function for pre-calculated constant, Legendre and
+-- Gegenbauer.
 calcZC :: (N, L, MF) -> Pyramid (N, L, MF) Double -> Pyramid (L, MF) Double ->
           Pyramid (N, L) Double -> SO3 -> Complex Double
 calcZC nlmf@(n, l, mf) pyK pyP pyC SO3{..} = i * common * cis (mi * so3Phi)
   where
     mi = fromIntegral (unMF mf)
     li = fromIntegral (unL l) ::  Int
-    s  = if even (unL l) then 1 else -1
-    i  = powerComplex (unL l)
+    i  = negativeImaginaryPower (unL l)
     common = let
       z1 = pyK %! nlmf
       z2 = (sin (so3Omega/2))^li
       z3 = pyC %! (n, l)
       z4 = pyP %! (l, mf)
-      co = s * 0.5 * sqrt2 * z1 * z2 * z3 * z4
+      co = 0.5 * sqrt2 * z1 * z2 * z3 * z4
       in co :+ 0
 
-{-# INLINE calcZ #-}
+-- | Real hyperspherical harmonic function for pre-calculated constant, Legendre and
+-- Gegenbauer.
 calcZ :: (N, L, MF) -> Pyramid (N, L, MF) Double -> Pyramid (L, MF) Double ->
          Pyramid (N, L) Double -> SO3 -> Double
-calcZ nlmf@(n, l, mf) pyK pyP pyC SO3{..}
+calcZ (n, l, mf) pyK pyP pyC x@SO3{..}
+  | mf > 0    = realPart $ (ip l)     * kr * (om * zP + zN)
+  | mf < 0    = realPart $ (ip $ l-1) * kr * (om * zP - zN)
+  | otherwise = realPart $ (ip l)     * zP
+  where
+    zP  = calcZC (n, l, abs mf) pyK pyP pyC x
+    zN  = olm * conjugate zP
+    ip  = imaginaryPower . unL
+    kr  = (1 / sqrt2) :+ 0
+    om  = if even (unMF mf) then 1 else -1
+    olm = if even (abs (unL l) + abs (unMF mf)) then 1 else -1
+
+-- | This implementation has a shifted phase. See the PhD Thesis "Analysis of
+-- crystallographic texture information by the hyperspherical harmonic expansion", pages
+-- 137.
+calcZ_bad :: (N, L, MF) -> Pyramid (N, L, MF) Double -> Pyramid (L, MF) Double ->
+             Pyramid (N, L) Double -> SO3 -> Double
+calcZ_bad (n, l, mf) pyK pyP pyC SO3{..}
   | mf > 0    = s * common * cos (mi * so3Phi)
   | mf < 0    = s * common * sin (mi * so3Phi)
   | otherwise = common
@@ -130,12 +151,11 @@ calcZ nlmf@(n, l, mf) pyK pyP pyC SO3{..}
     li = fromIntegral (unL l) :: Int
     s  = if even (unMF mf) then 1 else -1
     common = let
-      z1 = pyK %! nlmf
+      z1 = pyK %! (n, l, mf)
       z2 = (sin (so3Omega/2))^li
       z3 = pyC %! (n, l)
       z4 = pyP %! (l, mf)
       in z1 * z2 * z3 * z4
-
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- TESTING and IMPLEMENT MEMORIZATION
@@ -167,6 +187,7 @@ memoGegenbauerPyramid = let
 
 -- =============================== Spherical Harmonic Class ==============================
 
+-- | Class of spherical harmonics coefficient generator
 class SH a b where
   type PyIx a b :: *
   genSHFunc :: Int -> a -> Pyramid (PyIx a b) b
@@ -188,7 +209,7 @@ instance SH SO2 Double where
 instance SH SO3 (Complex Double) where
   type PyIx SO3 (Complex Double) = (N, L, MF)
   genSHFunc ni = \r@(SO3{..}) -> let
-    k  = generatePyramid calcHyperK ni
+    k  = generatePyramid calcHyperKFull ni
     --p  = memoLegendreFullPyramid so3Theta
     --c  = memoGegenbauerPyramid   so3Omega
     p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
@@ -198,11 +219,13 @@ instance SH SO3 (Complex Double) where
 instance SH SO3 Double where
   type PyIx SO3 Double = (N, L, MF)
   genSHFunc ni = \r@(SO3{..}) -> let
-    k  = generatePyramid calcHyperK ni
+    k  = generatePyramid calcHyperKFull ni
     p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
     c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
     in generatePyramid (\nlmf -> calcZ nlmf k p c r) ni
 
+-- | Evaluate the spherical harmonic expansion represented by a given set of coefficients
+-- at a given position.
 {-# INLINE evalSH #-}
 evalSH :: (SH pi a, U.Unbox a, Num a, PyraKey (PyIx pi a))=> Pyramid (PyIx pi a) a -> pi -> a
 evalSH pyC = \x -> let
@@ -213,10 +236,12 @@ evalSH pyC = \x -> let
   func acc nlmf = acc + (pyC %! nlmf) * (shf %! nlmf)
   in L.foldl' func 0 ps
 
+-- | Generate the spherical harmonics coefficient for a single position.
 findSHCoef :: (SH pi a, U.Unbox a, Num a, PyraKey (PyIx pi a))=>
               Int -> pi -> Pyramid (PyIx pi a) a
 findSHCoef = genSHFunc
 
+-- | Generate the spherical harmonics coefficient for multiple positions with weights.
 findSHCoefWeight :: ( SH pi a, U.Unbox a, Num a, PyraKey (PyIx pi a)
                     , Eq (PyIx pi a), Fractional a)=>
                     Int -> Vector (a, pi) -> Pyramid (PyIx pi a) a
@@ -229,6 +254,8 @@ findSHCoefWeight n xs = let
   total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
   in mapPyramid (/np) total
 
+-- | Generate the spherical harmonics coefficient for multiple positions with custom
+-- weight function.
 findSHCoefWith :: ( SH pi a, U.Unbox a, Num a, PyraKey (PyIx pi a)
                   , Eq (PyIx pi a), Fractional a)=>
                   Int -> (pi -> a) -> Vector pi -> Pyramid (PyIx pi a) a
@@ -243,18 +270,21 @@ findSHCoefWith n func xs = let
 
 -- =============================== Plotting Functions ====================================
 
+-- | Evaluate a given SH base function at a given position.
 evalSingleSH_C :: (L, MF) -> SO2 -> Complex Double
 evalSingleSH_C lmf@(l,_) = \x@(SO2{..}) -> let
   k = generatePyramid calcKFull (unL l)
   p = genAssLegenFullPyramid l (cos so2Theta)
   in calcYC lmf k p x
 
+-- | Evaluate a given SH base function at a given position. Uses 'calcZ'
 evalSingleSH :: (L, MF) -> SO2 -> Double
 evalSingleSH  lmf@(l,_) = \x@(SO2{..}) -> let
   k = generatePyramid calcK (unL l)
   p = genAssLegenPyramid l (cos so2Theta)
   in calcY lmf k p x
 
+-- | Evaluate a given SH base function at a given position. Uses 'calcZC'
 evalSingleSH' :: (L, MF) -> SO2 -> Double
 evalSingleSH' lmf@(l, mf) x@(SO2{..})
   | mf > 0    = s * realPart (func (l, mf) + conjugate (func (l, mf)))
@@ -268,6 +298,7 @@ evalSingleSH' lmf@(l, mf) x@(SO2{..})
     p  = genAssLegenFullPyramid l (cos so2Theta)
     func pos = calcYC pos k p x
 
+-- | Evaluate a given SH base function at a given position. Uses 'calcZC'
 evalSingleSH'' :: (L, MF) -> SO2 -> Double
 evalSingleSH'' lmf@(l, mf) x@(SO2{..})
   | mf > 0    = realPart $ kr * (s * func (l, mf)  + (func (l, -mf)))
@@ -281,25 +312,43 @@ evalSingleSH'' lmf@(l, mf) x@(SO2{..})
     p  = genAssLegenFullPyramid l (cos so2Theta)
     func pos = calcYC pos k p x
 
+-- | Evaluate a given HSH base function at a given position. Uses 'calcZ'
 evalSingleHSH :: (N, L, MF) -> SO3 -> Double
 evalSingleHSH nlmf@(n,_,_) x@(SO3{..}) = let
-  k = generatePyramid calcHyperK (unN n)
+  k = generatePyramid calcHyperKFull (unN n)
   p = genAssLegenFullPyramid (L (unN n)) (cos so3Theta)
   c = genGegenbauerPyramid n (cos $ so3Omega / 2)
   in calcZ nlmf k p c x
 
+-- | Evaluate a given HSH base function at a given position. Uses 'calcZC'
+evalSingleHSH' :: (N, L, MF) -> SO3 -> Double
+evalSingleHSH' (n, l, mf) x@(SO3{..})
+  | mf > 0    = realPart $ (ip l)     * kr * (s * func (n, l, mf)  + (func (n, l, -mf)))
+  | mf < 0    = realPart $ (ip $ l-1) * kr * (s * func (n, l, -mf) - (func (n, l,  mf)))
+  | otherwise = realPart $ (ip l)     * func (n, l, mf)
+  where
+    ip = imaginaryPower . unL
+    kr = (1 / sqrt2) :+ 0
+    s  = if even (unMF mf) then 1 else -1
+    k = generatePyramid calcHyperKFull (unN n)
+    p = genAssLegenFullPyramid (L (unN n)) (cos so3Theta)
+    c = genGegenbauerPyramid n (cos $ so3Omega / 2)
+    func pos = calcZC pos k p c x
+
+-- | Plots all base functions up two a give L.
 plotSHFuncFamily :: Int -> IO ()
 plotSHFuncFamily l = let
   (grid, vtk) = mkSO2 60 60
   lms         = genLinSeq l :: [(L, MF)]
   addLM :: VTK Vec3 -> (L, MF) -> VTK Vec3
   addLM acc lmf = let
-    func i _ = evalSingleSH'' lmf (grid U.!i)
+    func i _ = evalSingleSH lmf (grid U.!i)
     attr = mkPointAttr (show lmf) func
     in addDataPoints acc attr
   out = L.foldl addLM vtk lms
-  in writeQuater ("SH''_Family-L=" ++ show l) out
+  in writeQuater ("SH_Family-L=" ++ show l) out
 
+-- | Plots all base functions up two a give N.
 plotHSHFuncFamily :: Int -> IO ()
 plotHSHFuncFamily n = let
   (grid, vtk) = mkSO3 30 30 30
@@ -312,6 +361,8 @@ plotHSHFuncFamily n = let
   out = L.foldl addLM vtk lms
   in writeQuater ("HSH_Family-N=" ++ show n) out
 
+-- | Calculates and plots SH given a list of positions and a function to convert from
+-- Complex SH to Real SH.
 plotSH_C :: String
             -> [SO2]
             -> (Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double)
@@ -323,17 +374,8 @@ plotSH_C name ss func = let
   vtk = renderSO2VTK (evalSH (func c))
   in writeQuater ("SH_C-" ++ name) vtk
 
-plotHSH_C :: String
-             -> [SO3]
-             -> (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double)
-             -> IO ()
-plotHSH_C name ss func = let
-  xs :: Vector (Complex Double, SO3)
-  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
-  c   = findSHCoefWeight 6 xs
-  vtk = renderSO3SolidVTK (evalSH (func c))
-  in writeQuater ("HSH_C-" ++ name) vtk
-
+-- | Calculates and plots SH given a list of positions and a transformation function (e.g.
+-- rotation) to convert from Complex SH to Real SH.
 plotSH :: String
           -> [SO2]
           -> (Pyramid (L, MF) Double -> Pyramid (L, MF) Double)
@@ -345,6 +387,21 @@ plotSH name ss func = let
   vtk = renderSO2VTK (evalSH $ func c)
   in writeQuater ("SH-" ++ name) vtk
 
+-- | Calculates and plots HSH given a list of positions and a function to convert from
+-- Complex SH to Real SH.
+plotHSH_C :: String
+             -> [SO3]
+             -> (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double)
+             -> IO ()
+plotHSH_C name ss func = let
+  xs :: Vector (Complex Double, SO3)
+  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
+  c   = findSHCoefWeight 6 xs
+  vtk = renderSO3SolidVTK (evalSH (func c))
+  in writeQuater ("HSH_C-" ++ name) vtk
+
+-- | Calculates and plots HSH given a list of positions and a transformation function (e.g.
+-- rotation) to convert from Complex SH to Real SH.
 plotHSH :: String
            -> [SO3]
            -> (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double)
@@ -356,6 +413,7 @@ plotHSH name ss func = let
   vtk = renderSO3SolidVTK (evalSH $ func c)
   in writeQuater ("HSH-" ++ name) vtk
 
+-- | Plots lists of positions and their active and passive rotations in the SO2 domain.
 plotSHPoints :: [SO2] -> [SO3] -> [SO3] -> IO ()
 plotSHPoints ss as ps = let
   ss'   = U.fromList ss
@@ -371,6 +429,7 @@ plotSHPoints ss as ps = let
     writeQuater "SH-active-points"   aplot
     writeQuater "SH-passive-points"  pplot
 
+-- | Plots lists of positions and their active and passive rotations in the SO3 domain.
 plotHSHPoints :: [SO3] -> [SO3] -> [SO3] -> IO ()
 plotHSHPoints ss as ps = let
   ss'   = U.map so3ToQuaternion $ U.fromList ss
@@ -416,7 +475,7 @@ testZ r = let
                                     3 *   cos theta)
   p32 = (1/4)  * sqrt (105/4*pi) * (cos theta * (sin theta)^(2::Int) * cos (2*phi))
   ts  = [ z %! (7, 0) - p70, z %! (4, 0) - p40, z %! (3, 0) - p30, z %! (3, 2) - p32]
-  in and $ dbg "" $ map ((< 10-8) . abs) ts
+  in and $ map ((< 10-8) . abs) ts
 
 testP :: Double -> Bool
 testP x = let
@@ -426,7 +485,7 @@ testP x = let
   t3 = (p %! (4, -4)) - (105*(1-x^(2::Int))^(2::Int))/40320
   t4 = (p %! (3,  3)) - (-15*(1-x^(2::Int))**(3/2))
   t5 = (p %! (3, -3)) - (-15*(1-x^(2::Int))**(3/2))/(-720)
-  in and $ dbg "" $ map ((< 10-8) . abs) [t1, t2, t3, t4, t5]
+  in and $ map ((< 10-8) . abs) [t1, t2, t3, t4, t5]
 
 testSHGrid ::  U.Vector (Bool, Bool)
 testSHGrid = let
@@ -474,6 +533,6 @@ testSH x@SO2{..} = let
   tr8 = evalSingleSH (2, 1) x - r21
   tr9 = evalSingleSH (2, 2) x - r22
 
-  testC = and $ dbg "testC" $ map ((< 10e-8) . magnitude) [t1, t2, t3, t4, t5, t6, t7, t8, t9]
-  testR = and $ dbg "testR" $ map ((< 10e-8) . abs) [tr1, tr2, tr3, tr4, tr5, tr6, tr7, tr8, tr9]
-  in trace (show (t4, evalSingleSH_C (1, 1) x, y11)) (testC, testR)
+  testC = and $ map ((< 10e-8) . magnitude) [t1, t2, t3, t4, t5, t6, t7, t8, t9]
+  testR = and $ map ((< 10e-8) . abs) [tr1, tr2, tr3, tr4, tr5, tr6, tr7, tr8, tr9]
+  in (testC, testR)

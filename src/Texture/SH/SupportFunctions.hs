@@ -12,7 +12,8 @@ module Texture.SH.SupportFunctions
          -- * Clebsh-Gordan coefficient
        , calcClebshGordan
          -- * Power of Imaginary
-       , powerComplex
+       , imaginaryPower
+       , negativeImaginaryPower
          -- * Factorials
        , fact
        , logFact
@@ -247,8 +248,15 @@ testGegen nmax x = let
 
 -- =============================== power of imaginary (i^n)  =============================
 
-powerComplex :: (Num a)=> Int -> Complex a
-powerComplex x
+negativeImaginaryPower :: (Num a)=> Int -> Complex a
+negativeImaginaryPower x
+  | even x && even (x `quot` 2) =   1  :+   0
+  | even x                      = (-1) :+   0
+  | odd  x && even (x `quot` 2) =   0  :+ (-1)
+  | otherwise                   =   0  :+   1
+
+imaginaryPower :: (Num a)=> Int -> Complex a
+imaginaryPower x
   | even x && even (x `quot` 2) =   1  :+   0
   | even x                      = (-1) :+   0
   | odd  x && even (x `quot` 2) =   0  :+   1
