@@ -39,8 +39,10 @@ import           Texture.SH.RotationSO3
 vecRotMatrixHSH :: Int -> SO3 -> SO3 -> Vector (M.Matrix (Complex Double))
 vecRotMatrixHSH n r p = let
   lmax = n `quot` 2
-  us   = vecActiveRotMatrixSH  lmax r
-  us'  = vecPassiveRotMatrixSH lmax p
+  -- For some reason p and r had to swap positions, it mans that the active rotation is
+  -- given by vecPassiveRotMatrixSH and the passive rotation is given by vecActiveRotMatrixSH  
+  us   = vecActiveRotMatrixSH  lmax p
+  us'  = vecPassiveRotMatrixSH lmax r
   in V.izipWith (\l u u' -> calcRotMatrixHSH u u' (2*l)) us us'
 
 vecIDRotMatrixHSH :: Int -> Vector (M.Matrix (Complex Double))
@@ -189,7 +191,7 @@ realPartMatrixHSH l = let
       mi = -i + l
       mj = -j + l
       s  = if even mi then 1 else (-1)
-  ip = imaginaryPower
+  ip = negativeImaginaryPower
   k  = 1 / (sqrt 2)
   ms = 2 * l + 1
   in buildMatrix ms ms calcAtM
@@ -253,15 +255,14 @@ testRotHSH = let
   g1   = SO3 (pi/2) (pi/2) (pi/2)
   g2   = SO3 (pi/4) (pi/4)  0
   rot  = SO3 (-pi/2) (pi/2)  0
-  rot' = SO3 (pi/2) (pi/2) 0
   in do
     plotHSHPoints [g1, g2] [rot] [rot]
     plotHSH_C "initial" [g1, g2] fromComplexHSH
     plotHSH   "initial" [g1, g2] id
     plotHSH_C "active"  [g1, g2] (fromComplexHSH . rotHSH (rot, SO3 0 0 0))
-    plotHSH   "active"  [g1, g2] (rotRHSH (rot', SO3 0 0 0))
+    plotHSH   "active"  [g1, g2] (rotRHSH (rot, SO3 0 0 0))
     plotHSH_C "passive" [g1, g2] (fromComplexHSH . rotHSH (SO3 0 0 0, rot))
-    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot'))
+    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot))
 
 testSymmHSH :: IO ()
 testSymmHSH = let
