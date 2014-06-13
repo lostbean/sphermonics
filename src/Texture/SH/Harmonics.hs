@@ -342,9 +342,9 @@ plotSHFuncFamily l = let
   lms         = genLinSeq l :: [(L, MF)]
   addLM :: VTK Vec3 -> (L, MF) -> VTK Vec3
   addLM acc lmf = let
-    func i _ = evalSingleSH lmf (grid U.!i)
+    func = evalSingleSH lmf . (grid U.!)
     attr = mkPointAttr (show lmf) func
-    in addDataPoints acc attr
+    in addPointAttr acc attr
   out = L.foldl addLM vtk lms
   in writeQuater ("SH_Family-L=" ++ show l) out
 
@@ -355,9 +355,9 @@ plotHSHFuncFamily n = let
   lms         = genLinSeq n :: [(N, L, MF)]
   addLM :: VTK Vec3 -> (N, L, MF) -> VTK Vec3
   addLM acc nlmf = let
-    func i _ = evalSingleHSH nlmf (grid U.!i)
+    func = evalSingleHSH nlmf . (grid U.!)
     attr = mkPointAttr (show nlmf) func
-    in addDataPoints acc attr
+    in addPointAttr acc attr
   out = L.foldl addLM vtk lms
   in writeQuater ("HSH_Family-N=" ++ show n) out
 
