@@ -257,12 +257,12 @@ testRotHSH = let
   rot  = SO3 (-pi/2) (pi/2)  0
   in do
     plotHSHPoints [g1, g2] [rot] [rot]
-    plotHSH_C "initial" [g1, g2] fromComplexHSH
-    plotHSH   "initial" [g1, g2] id
-    plotHSH_C "active"  [g1, g2] (fromComplexHSH . rotHSH (rot, SO3 0 0 0))
-    plotHSH   "active"  [g1, g2] (rotRHSH (rot, SO3 0 0 0))
-    plotHSH_C "passive" [g1, g2] (fromComplexHSH . rotHSH (SO3 0 0 0, rot))
-    plotHSH   "passive" [g1, g2] (rotRHSH (SO3 0 0 0, rot))
+    saveTest "HSH-C-initial" $ plotHSH_C 6 [g1, g2] fromComplexHSH
+    saveTest "HSH-initial"   $ plotHSH   6 [g1, g2] id
+    saveTest "HSH-C-active"  $ plotHSH_C 6 [g1, g2] (fromComplexHSH . rotHSH (rot, SO3 0 0 0))
+    saveTest "HSH-active"    $ plotHSH   6 [g1, g2] (rotRHSH (rot, SO3 0 0 0))
+    saveTest "HSH-C-passive" $ plotHSH_C 6 [g1, g2] (fromComplexHSH . rotHSH (SO3 0 0 0, rot))
+    saveTest "HSH-passive"   $ plotHSH   6 [g1, g2] (rotRHSH (SO3 0 0 0, rot))
 
 testSymmHSH :: IO ()
 testSymmHSH = let
@@ -275,7 +275,7 @@ testSymmHSH = let
   (as, ps) = unzip symm
   in do
     plotHSHPoints [g] as ps
-    plotHSH_C "symmetry"  [g] (fromComplexHSH . applyRotMatrixHSH rot)
+    saveTest "HSH-symmetry" $ plotHSH_C 10 [g] (fromComplexHSH . applyRotMatrixHSH rot)
 
 -- ======================================== Trash ========================================
 

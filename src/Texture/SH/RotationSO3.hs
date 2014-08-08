@@ -25,6 +25,7 @@ import           Texture.SH.Harmonics
 import           Texture.SH.Pyramid
 import           Texture.SH.SupportFunctions
 
+import           Hammer.VTK
 --import           Debug.Trace
 --dbg s x = trace (show s L.++ show x) x
 
@@ -168,14 +169,14 @@ testRotSH = let
   rot = SO3 (pi/3.6) (pi/5.5) (0.88*pi)
   in do
     plotSHPoints [g1, g2] [rot] [rot]
-    plotSH_C "initial2" [g1, g2] fromComplexSH2
-    plotSH_C "initial" [g1, g2] fromComplexSH
-    plotSH   "initial" [g1, g2] id
-    plotSH_C "active"  [g1, g2] (fromComplexSH . rotActiveSH rot)
-    plotSH   "active"  [g1, g2] (rotActiveRealSH rot)
-    plotSH_C "passive" [g1, g2] (fromComplexSH . rotPassiveSH rot)
-    plotSH   "passive" [g1, g2] (rotPassiveRealSH rot)
-    plotSH   "id"      [g1, g2] (rotActiveRealSH $ SO3 0 0 0)
+    saveTest "initial2" $ plotSH_C 10 [g1, g2] fromComplexSH2
+    saveTest "initial"  $ plotSH_C 10 [g1, g2] fromComplexSH
+    saveTest "initial"  $ plotSH   10 [g1, g2] id
+    saveTest "active"   $ plotSH_C 10 [g1, g2] (fromComplexSH . rotActiveSH rot)
+    saveTest "active"   $ plotSH   10 [g1, g2] (rotActiveRealSH rot)
+    saveTest "passive"  $ plotSH_C 10 [g1, g2] (fromComplexSH . rotPassiveSH rot)
+    saveTest "passive"  $ plotSH   10 [g1, g2] (rotPassiveRealSH rot)
+    saveTest "id"       $ plotSH   10 [g1, g2] (rotActiveRealSH $ SO3 0 0 0)
 
 rotMZ :: Int -> Double -> M.Matrix (Complex Double)
 rotMZ l omega = let
@@ -199,3 +200,6 @@ vecZRotMatrixHSH n omega = let
   lmax = n `quot` 2
   func l = rotMZReal l omega
   in V.generate lmax func
+
+saveTest :: (RenderElemVTK a)=> String -> VTK a -> IO ()
+saveTest name = writeUniVTKfile ("/home/edgar/Desktop/" ++ name ++ ".vtu") False

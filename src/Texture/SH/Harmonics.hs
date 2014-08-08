@@ -22,7 +22,6 @@ module Texture.SH.Harmonics
        , plotHSHPoints
        , plotSHFuncFamily
        , plotHSHFuncFamily
-       , writeQuater
        ) where
 
 import qualified Data.List           as L
@@ -268,7 +267,7 @@ findSHCoefWith n func xs = let
   total = V.foldl (\acc x -> zipPyramidWith (+) acc (foo x)) (foo x0) xt
   in mapPyramid (/np) total
 
--- =============================== Plotting Functions ====================================
+-- =============================== Evaluating Functions ==================================
 
 -- | Evaluate a given SH base function at a given position.
 evalSingleSH_C :: (L, MF) -> SO2 -> Complex Double
@@ -335,6 +334,58 @@ evalSingleHSH' (n, l, mf) x@(SO3{..})
     c = genGegenbauerPyramid n (cos $ so3Omega / 2)
     func pos = calcZC pos k p c x
 
+-- =============================== Plotting Functions ====================================
+
+-- | Calculates and plots SH given a list of positions and a function to convert from
+-- Complex SH to Real SH.
+plotSH_C :: Int
+         -> [SO2]
+         -> (Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double)
+         -> VTK Vec3
+plotSH_C l ss func = let
+  xs :: Vector (Complex Double, SO2)
+  xs  = V.fromList $ map (\s -> (1 :+ 0, s)) ss
+  c   = findSHCoefWeight l xs
+  in renderSO2VTK (evalSH (func c))
+
+-- | Calculates and plots SH given a list of positions and a transformation function (e.g.
+-- rotation) to convert from Complex SH to Real SH.
+plotSH :: Int
+       -> [SO2]
+       -> (Pyramid (L, MF) Double -> Pyramid (L, MF) Double)
+       -> VTK Vec3
+plotSH l ss func = let
+  xs :: Vector (Double, SO2)
+  xs  = V.fromList $ map (\s -> (1, s)) ss
+  c   = findSHCoefWeight l xs
+  in renderSO2VTK (evalSH $ func c)
+
+-- | Calculates and plots HSH given a list of positions and a function to convert from
+-- Complex SH to Real SH.
+plotHSH_C :: Int
+          -> [SO3]
+          -> (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double)
+          -> VTK Vec3
+plotHSH_C n ss func = let
+  xs :: Vector (Complex Double, SO3)
+  xs  = V.fromList $ map (\s -> (1 :+ 0, s)) ss
+  c   = findSHCoefWeight n xs
+  in renderSO3SolidVTK (evalSH (func c))
+
+-- | Calculates and plots HSH given a list of positions and a transformation function (e.g.
+-- rotation) to convert from Complex SH to Real SH.
+plotHSH :: Int
+        -> [SO3]
+        -> (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double)
+        -> VTK Vec3
+plotHSH n ss func = let
+  xs :: Vector (Double, SO3)
+  xs  = V.fromList $ map (\s -> (1, s)) ss
+  c   = findSHCoefWeight n xs
+  in renderSO3SolidVTK (evalSH $ func c)
+
+-- ========================= Plotting Functions for testing ==============================
+
 -- | Plots all base functions up two a give L.
 plotSHFuncFamily :: Int -> IO ()
 plotSHFuncFamily l = let
@@ -360,58 +411,6 @@ plotHSHFuncFamily n = let
     in addPointAttr acc attr
   out = L.foldl addLM vtk lms
   in writeQuater ("HSH_Family-N=" ++ show n) out
-
--- | Calculates and plots SH given a list of positions and a function to convert from
--- Complex SH to Real SH.
-plotSH_C :: String
-            -> [SO2]
-            -> (Pyramid (L, MF) (Complex Double) -> Pyramid (L, MF) Double)
-            -> IO ()
-plotSH_C name ss func = let
-  xs :: Vector (Complex Double, SO2)
-  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
-  c   = findSHCoefWeight 10 xs
-  vtk = renderSO2VTK (evalSH (func c))
-  in writeQuater ("SH_C-" ++ name) vtk
-
--- | Calculates and plots SH given a list of positions and a transformation function (e.g.
--- rotation) to convert from Complex SH to Real SH.
-plotSH :: String
-          -> [SO2]
-          -> (Pyramid (L, MF) Double -> Pyramid (L, MF) Double)
-          -> IO ()
-plotSH name ss func = let
-  xs :: Vector (Double, SO2)
-  xs  = V.fromList $ map (\s -> (10, s)) ss
-  c   = findSHCoefWeight 10 xs
-  vtk = renderSO2VTK (evalSH $ func c)
-  in writeQuater ("SH-" ++ name) vtk
-
--- | Calculates and plots HSH given a list of positions and a function to convert from
--- Complex SH to Real SH.
-plotHSH_C :: String
-             -> [SO3]
-             -> (Pyramid (N,L,MF) (Complex Double) -> Pyramid (N,L,MF) Double)
-             -> IO ()
-plotHSH_C name ss func = let
-  xs :: Vector (Complex Double, SO3)
-  xs  = V.fromList $ map (\s -> (10 :+ 0, s)) ss
-  c   = findSHCoefWeight 6 xs
-  vtk = renderSO3SolidVTK (evalSH (func c))
-  in writeQuater ("HSH_C-" ++ name) vtk
-
--- | Calculates and plots HSH given a list of positions and a transformation function (e.g.
--- rotation) to convert from Complex SH to Real SH.
-plotHSH :: String
-           -> [SO3]
-           -> (Pyramid (N,L,MF) Double -> Pyramid (N,L,MF) Double)
-           -> IO ()
-plotHSH name ss func = let
-  xs :: Vector (Double, SO3)
-  xs  = V.fromList $ map (\s -> (10, s)) ss
-  c   = findSHCoefWeight 6 xs
-  vtk = renderSO3SolidVTK (evalSH $ func c)
-  in writeQuater ("HSH-" ++ name) vtk
 
 -- | Plots lists of positions and their active and passive rotations in the SO2 domain.
 plotSHPoints :: [SO2] -> [SO3] -> [SO3] -> IO ()
