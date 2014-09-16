@@ -29,6 +29,9 @@ import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as U
 
 import           Data.Vector         (Vector)
+import           System.IO.Unsafe    (unsafePerformIO)
+import           Control.Exception   (try, SomeException)
+import           Data.Binary
 
 import           Data.Complex
 
@@ -156,33 +159,48 @@ calcZ_bad (n, l, mf) pyK pyP pyC SO3{..}
       z4 = pyP %! (l, mf)
       in z1 * z2 * z3 * z4
 
--- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
--- TESTING and IMPLEMENT MEMORIZATION
+-- ====================================== Memorization ===================================
 
 fixAngle :: Double -> Double
 fixAngle x
   | x < 0     = fixAngle (x + 2*pi)
+  | x > 2*pi  = fixAngle (x - 2*pi)
   | otherwise = x
+
+
+filetable :: (Binary a)=> FilePath -> Maybe (Vector a)
+filetable file = unsafePerformIO $ do
+  t <- try (decodeFile file)
+  case t of
+   Right d -> return $ Just d
+   Left  e -> do
+     putStr $ "[Harmonics] Couldn't load the data table on " ++ file
+     putStrLn $ ". Reason: " ++ show (e :: SomeException)
+     return Nothing
 
 memoLegendreFullPyramid :: Double -> Pyramid (L, MF) Double
 memoLegendreFullPyramid = (mem V.!) . round . (/step) . fixAngle
   where
     mem :: Vector (Pyramid (L, MF) Double)
-    mem = V.map (genAssLegenFullPyramid (L 30) . cos) ws
+    mem = maybe
+          (V.map (genAssLegenFullPyramid (L 30) . cos) ws)
+          id
+          (filetable "legendre_coef.data")
     ws  = V.enumFromStepN 0 step n
     n   = 360
-    step = pi / (fromIntegral n)
+    step = (2 * pi) / (fromIntegral n)
 
 memoGegenbauerPyramid :: Double -> Pyramid (N, L) Double
-memoGegenbauerPyramid = let
-  mem :: Vector (Pyramid (N, L) Double)
-  mem = V.map (genGegenbauerPyramid (N 30) . cos) ws
-  ws  = V.enumFromStepN 0 step n
-  n   = 180
-  step = pi / (fromIntegral n)
-  in (mem V.!) . round . (/step) . (*0.5) . fixAngle
-
--- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+memoGegenbauerPyramid = (mem V.!) . round . (/step) . (* 0.5) . fixAngle
+  where
+    mem :: Vector (Pyramid (N, L) Double)
+    mem = maybe
+          (V.map (genGegenbauerPyramid (N 30) . cos) ws)
+          id
+          (filetable "gegenbauer_coef.data")
+    ws  = V.enumFromStepN 0 step n
+    n   = 180
+    step = pi / (fromIntegral n)
 
 -- =============================== Spherical Harmonic Class ==============================
 
@@ -209,18 +227,20 @@ instance SH SO3 (Complex Double) where
   type PyIx SO3 (Complex Double) = (N, L, MF)
   genSHFunc ni = \r@(SO3{..}) -> let
     k  = generatePyramid calcHyperKFull ni
-    --p  = memoLegendreFullPyramid so3Theta
-    --c  = memoGegenbauerPyramid   so3Omega
-    p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
-    c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
+    p  = memoLegendreFullPyramid so3Theta
+    c  = memoGegenbauerPyramid   so3Omega
+    --p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
+    --c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
     in generatePyramid (\nlm -> calcZC nlm k p c r) ni
 
 instance SH SO3 Double where
   type PyIx SO3 Double = (N, L, MF)
   genSHFunc ni = \r@(SO3{..}) -> let
     k  = generatePyramid calcHyperKFull ni
-    p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
-    c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
+    p  = memoLegendreFullPyramid so3Theta
+    c  = memoGegenbauerPyramid   so3Omega
+    --p  = genAssLegenFullPyramid (L ni) (cos so3Theta)
+    --c  = genGegenbauerPyramid   (N ni) (cos $ so3Omega / 2)
     in generatePyramid (\nlmf -> calcZ nlmf k p c r) ni
 
 -- | Evaluate the spherical harmonic expansion represented by a given set of coefficients
