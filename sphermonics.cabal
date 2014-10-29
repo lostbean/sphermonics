@@ -50,7 +50,7 @@ Executable tablegen
     else
        Buildable:      False
 
-Executable sledge-profile
+Executable sphermonics-profile
     main-is:           Main.hs
     if flag(test)
        build-depends: sphermonics
@@ -85,6 +85,7 @@ Executable sledge-profile
 
 Library
   build-depends:  base                    == 4.*
+                , sledge                  >= 0.4
                 , hammer                  >= 0.4
                 , array                   >= 0.4
                 , containers              >= 0.4.2.1
@@ -96,6 +97,7 @@ Library
                 , parallel                >= 3.0
                 , deepseq                 >= 1.2
                 , hmatrix                 >= 0.15
+                , gamma                   >= 0.9
 
   exposed-modules:  Texture.SphericalHarmonics
   other-modules:    Texture.SH.Harmonics
