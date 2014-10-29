@@ -32,11 +32,10 @@ import qualified Data.Vector.Unboxed as U
 
 import           GHC.Generics        (Generic)
 
-import           Data.Vector.Binary
 import           Data.Binary
+import           Data.Vector.Binary ()
 
-
-import           Debug.Trace
+--import           Debug.Trace
 
 class PyraKey k where
   isKeyInRange  :: k -> Bool
@@ -247,6 +246,10 @@ mapPyramid func py = py { pyramid = U.map func (pyramid py) }
 (%!) :: (U.Unbox a, PyraKey k)=> Pyramid k a -> k -> a
 Pyramid{..} %! key = pyramid U.! (getKeyPos key)
 
+<<<<<<< HEAD
+=======
+{--
+>>>>>>> kernel
 -- ========================================= Test ========================================
 
 testIndexAccess :: Int -> Bool
@@ -254,3 +257,7 @@ testIndexAccess n = let
   ks = V.fromList $ genLinSeq n :: V.Vector (N, L, M)
   func i p = trace (show (i, p, getKeyPos p)) $ i == getKeyPos p
   in V.and $ V.imap func ks
+<<<<<<< HEAD
+=======
+--}
+>>>>>>> kernel

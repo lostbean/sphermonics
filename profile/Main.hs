@@ -1,20 +1,10 @@
 {-# LANGUAGE RecordWildCards #-}
 module Main where
 
-import qualified Data.Vector.Unboxed as U
-
 import Options.Applicative
 import Control.Monad
 
-import Hammer.VTK
-import Hammer.Math.Algebra
-
-import Texture.Bingham
-import Texture.Orientation
-import Texture.HyperSphere
 import Texture.SphericalHarmonics
-import Texture.Sampler
---import TestTexture
 
 data Tester =
   Tester
@@ -67,6 +57,7 @@ run Tester{..} = do
   when run_sym_HSH testSymmHSH
   when run_fam_SH  (plotSHFuncFamily 10)
   when run_fam_HSH (plotHSHFuncFamily 10)
+<<<<<<< HEAD
   when run_fit_HSH (testSamplerAndFit 1000)
 
 testSamplerAndFit :: Int -> IO ()
@@ -89,3 +80,5 @@ testSamplerAndFit n = let
 
 writeQuater :: (RenderElemVTK a)=> String -> VTK a -> IO ()
 writeQuater name = writeUniVTKfile (name ++ ".vtu") True
+=======
+>>>>>>> kernel
